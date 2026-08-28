@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cg20o1ddgu6uk"
-path="res://.godot/imported/bread_chunk.glb-2f605d844971dc4fc61845d05e747384.scn"
+uid="uid://h14681l6ugb7"
+path="res://.godot/imported/bread_chunked.glb-05c440e5c193185cb2a44806409f57a2.scn"
 
 [deps]
 
-source_file="res://assets/models/bread_chunk.glb"
-dest_files=["res://.godot/imported/bread_chunk.glb-2f605d844971dc4fc61845d05e747384.scn"]
+source_file="res://assets/models/bread_chunked.glb"
+dest_files=["res://.godot/imported/bread_chunked.glb-05c440e5c193185cb2a44806409f57a2.scn"]
 
 [params]
 

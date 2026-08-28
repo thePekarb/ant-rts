@@ -6,7 +6,7 @@ extends Node3D
 @onready var squad_controller: SquadController = $SquadController
 @onready var anthill: Anthill = $Anthill
 
-var selected_units: Array[WorkerAnt] = []
+var selection_controller: SelectionController = SelectionController.new()
 
 # Начальная точка протягивания рамки.
 var selection_start: Vector2
@@ -23,6 +23,10 @@ const WORLD_MASK: int = 1      # Layer 1 = Земля, камни, блокир�
 const FRIENDLY_MASK: int = 2   # Layer 2 = Наши муравьи
 const ENEMY_MASK: int = 4      # Layer 3 = Враги (1 << 2 = 4)
 const RESOURCE_MASK: int = 8   # Layer 4 = Ресурсы (1 << 3 = 8)
+
+
+func _ready() -> void:
+	add_child(selection_controller)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -74,46 +78,25 @@ func update_selection_box(start: Vector2, end: Vector2) -> void:
 	selection_box.size = box_size
 
 
-func clean_selected_units() -> void:
-	selected_units = selected_units.filter(func(u): return is_instance_valid(u) and u.state != WorkerAnt.UnitState.DEAD)
-
-
-func clear_selection() -> void:
-	clean_selected_units()
-	for unit in selected_units:
-		unit.set_selected(false)
-	selected_units.clear()
-
-
 func select_unit_at_mouse(mouse_position: Vector2, additive: bool) -> void:
-	clean_selected_units()
-
-	# Ищем наших юнитов на Layer 2 (FRIENDLY_MASK = 2)
 	var result: Dictionary = raycast_from_mouse(mouse_position, FRIENDLY_MASK)
 
 	if not additive:
-		clear_selection()
+		selection_controller.clear_selection()
 
 	if result:
 		var collider = result.get("collider")
 		if collider is WorkerAnt and is_instance_valid(collider) and collider.state != WorkerAnt.UnitState.DEAD:
-			if additive and selected_units.has(collider):
-				collider.set_selected(false)
-				selected_units.erase(collider)
+			if additive:
+				selection_controller.toggle_unit(collider)
 			else:
-				if not selected_units.has(collider):
-					selected_units.append(collider)
-					collider.set_selected(true)
+				selection_controller.add_unit(collider)
 
 
 func select_units_in_box(start: Vector2, end: Vector2, additive: bool) -> void:
-	if not additive:
-		clear_selection()
-
-	clean_selected_units()
-
 	var rect := Rect2(start, end - start).abs()
 	var units := get_tree().get_nodes_in_group("selectable_units")
+	var boxed_units: Array[WorkerAnt] = []
 
 	for node in units:
 		if node is not WorkerAnt or not is_instance_valid(node) or node.state == WorkerAnt.UnitState.DEAD:
@@ -128,18 +111,21 @@ func select_units_in_box(start: Vector2, end: Vector2, additive: bool) -> void:
 
 		var screen_position: Vector2 = camera.unproject_position(unit.global_position)
 		if rect.has_point(screen_position):
-			if not selected_units.has(unit):
-				selected_units.append(unit)
-				unit.set_selected(true)
+			boxed_units.append(unit)
+
+	if additive:
+		for u in boxed_units:
+			selection_controller.add_unit(u)
+	else:
+		selection_controller.replace_selection(boxed_units)
 
 
 # ---------------------------------------------------------
-# КОНТЕКСТНЫЙ ПКМ V3: СТРОГИЙ ПРИОРИТЕТ ВРАГ -> РЕСУРС -> ЗЕМЛЯ
+# КОНТЕКСТНЫЙ ПКМ: СТРОГИЙ ПРИОРИТЕТ ВРАГ -> РЕСУРС -> ЗЕМЛЯ
 # ---------------------------------------------------------
 
 func command_right_click(mouse_position: Vector2) -> void:
-	clean_selected_units()
-
+	var selected_units: Array[WorkerAnt] = selection_controller.get_selected_units()
 	if selected_units.is_empty():
 		return
 

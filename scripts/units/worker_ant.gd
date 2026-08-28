@@ -29,7 +29,7 @@ var state: UnitState = UnitState.IDLE
 
 
 # ---------------------------------------------------------
-# НАСТРОЙКИ ДВИЖЕНИЯ V4
+# НАСТРОЙКИ ДВИЖЕНИЯ V5
 # ---------------------------------------------------------
 @export var walk_speed: float = 1.5
 @export var run_speed: float = 3.0
@@ -46,7 +46,7 @@ var stuck_timer: float = 0.0
 
 
 # ---------------------------------------------------------
-# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ V4
+# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ V5
 # ---------------------------------------------------------
 @export var max_health: float = 100.0
 var health: float
@@ -69,7 +69,7 @@ var attack_damage_pending: bool = false
 
 
 # ---------------------------------------------------------
-# СБОР И ПЕРЕНОСКА РЕСУРСОВ V4
+# СБОР И ПЕРЕНОСКА РЕСУРСОВ V5
 # ---------------------------------------------------------
 var target_resource: ResourceSource = null
 var target_anthill: Anthill = null
@@ -93,10 +93,10 @@ var carried_visual_node: Node3D = null
 @onready var animation_state: AnimationNodeStateMachinePlayback = animation_tree["parameters/playback"]
 @onready var animation_player: AnimationPlayer = $ant/AnimationPlayer
 @onready var navigation_agent: NavigationAgent3D = $NavigationAgent3D
-@onready var selection_indicator: MeshInstance3D = $SelectionIndicator
+@onready var selection_indicator: MeshInstance3D = get_node_or_null("SelectionIndicator")
 @onready var carry_socket: Marker3D = $CarrySocket
-@onready var attack_slots: Node3D = $AttackSlots
-@onready var attack_waiting_slots: Node3D = $AttackWaitingSlots
+@onready var attack_slots: Node3D = get_node_or_null("AttackSlots")
+@onready var attack_waiting_slots: Node3D = get_node_or_null("AttackWaitingSlots")
 
 var wants_to_run: bool = false
 var desired_velocity: Vector3 = Vector3.ZERO
@@ -112,7 +112,7 @@ func _ready() -> void:
 	else:
 		unit_tag = "[Муравей #" + str(unit_id) + "]"
 
-	# V4: Collision Mask = 1 ТОЛЬКО (физически блокируют мир, камни, стены, хлеб)
+	# V5: Collision Mask = 1 ТОЛЬКО (физически блокируют мир, камни, стены, хлеб)
 	collision_mask = 1
 
 	# Физика прилипания к земле
@@ -152,8 +152,47 @@ func _ready() -> void:
 	animation_tree.active = true
 	animation_state.start("Idle")
 
+	ensure_selection_indicator()
 	set_selected(false)
 	print(unit_tag, " инициализирован (HP: ", health, ")")
+
+
+# ---------------------------------------------------------
+# САМОВОССТАНАВЛИВАЮЩИЙСЯ ИНДИКАТОР ВЫДЕЛЕНИЯ
+# ---------------------------------------------------------
+
+func ensure_selection_indicator() -> void:
+	if selection_indicator == null:
+		selection_indicator = get_node_or_null("SelectionIndicator")
+
+	if selection_indicator == null:
+		selection_indicator = MeshInstance3D.new()
+		selection_indicator.name = "SelectionIndicator"
+		add_child(selection_indicator)
+
+	# Настраиваем яркий Unshaded TorusMesh точно под размер муравья
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = body_radius * 1.15
+	ring_mesh.outer_radius = body_radius * 1.45
+	ring_mesh.rings = 32
+	ring_mesh.ring_segments = 16
+
+	var ring_mat := StandardMaterial3D.new()
+	ring_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring_mat.albedo_color = Color(0.2, 1.0, 0.35, 0.95)
+	ring_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+
+	ring_mesh.material = ring_mat
+	selection_indicator.mesh = ring_mesh
+	selection_indicator.position = Vector3(0.0, 0.02, 0.0)
+
+
+func set_selected(selected: bool) -> void:
+	if selection_indicator == null:
+		ensure_selection_indicator()
+
+	if selection_indicator != null:
+		selection_indicator.visible = selected
 
 
 # ---------------------------------------------------------
@@ -252,7 +291,7 @@ func die() -> void:
 
 
 # ---------------------------------------------------------
-# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ V4
+# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ V5
 # ---------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
@@ -427,7 +466,7 @@ func process_attack(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОБЫЧИ V4 (GATHERING С FALLBACK-СТРАХОВКОЙ)
+# ОБРАБОТКА ДОБЫЧИ V5 (ДЕТАЛЬНОЕ СНЯТИЕ БЛИЖАЙШИХ КУСОЧКОВ)
 # ---------------------------------------------------------
 
 func process_gathering(delta: float) -> Vector3:
@@ -455,9 +494,8 @@ func process_gathering(delta: float) -> Vector3:
 		var reach_dist: float = target_resource.gather_slots.reach_distance
 
 		var reached_slot: bool = h_dist <= reach_dist
-
-		# Fallback-страховка V4: если муравей физически уже упёрся в край хлеба и стоит > 0.85 сек
 		var near_surface: bool = target_resource.is_point_near_surface(global_position, 0.85)
+
 		if near_surface and not reached_slot and get_real_velocity().length() < 0.06:
 			blocked_near_resource_timer += delta
 		else:
@@ -484,7 +522,9 @@ func process_gathering(delta: float) -> Vector3:
 			animation_state.travel("Gather")
 
 			if gather_timer <= 0.0:
-				carried_amount = target_resource.harvest(target_resource.units_per_trip)
+				# V5: Забираем кусочек, ближайший именно к этому муравью!
+				var taken_amount: int = target_resource.take_from(global_position, target_resource.units_per_trip)
+				carried_amount = taken_amount
 
 				if target_resource.carry_visual_scene != null and carried_amount > 0:
 					if carried_visual_node and is_instance_valid(carried_visual_node):
@@ -522,7 +562,7 @@ func process_gathering(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК V4 (CARRYING)
+# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК V5 (CARRYING)
 # ---------------------------------------------------------
 
 func process_carrying(delta: float) -> Vector3:
@@ -600,7 +640,7 @@ func process_carrying(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# РАСЧЁТ ДВИЖЕНИЯ V4
+# РАСЧЁТ ДВИЖЕНИЯ V5
 # ---------------------------------------------------------
 
 func get_move_velocity_to(target_position: Vector3, base_speed: float, delta: float) -> Vector3:
@@ -785,7 +825,3 @@ func setup_animation_loops() -> void:
 	var attack_anim: Animation = animation_player.get_animation("ANT_Attack")
 	if attack_anim:
 		attack_anim.loop_mode = Animation.LOOP_NONE
-
-
-func set_selected(selected: bool) -> void:
-	selection_indicator.visible = selected
