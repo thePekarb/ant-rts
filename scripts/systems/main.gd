@@ -7,6 +7,7 @@ extends Node3D
 @onready var anthill: Anthill = $Anthill
 
 var selection_controller: SelectionController = SelectionController.new()
+var hover_controller: HoverController = HoverController.new()
 
 # Начальная точка протягивания рамки.
 var selection_start: Vector2
@@ -19,14 +20,21 @@ const DRAG_THRESHOLD: float = 6.0
 # ---------------------------------------------------------
 # БИТОВЫЕ МАСКИ СЛОЕВ КОЛЛИЗИЙ
 # ---------------------------------------------------------
-const WORLD_MASK: int = 1      # Layer 1 = Земля, камни, блокирующий хлеб
-const FRIENDLY_MASK: int = 2   # Layer 2 = Наши муравьи
-const ENEMY_MASK: int = 4      # Layer 3 = Враги (1 << 2 = 4)
-const RESOURCE_MASK: int = 8   # Layer 4 = Ресурсы (1 << 3 = 8)
+const WORLD_MASK: int = 1       # Layer 1 = Земля, камни, блокирующий хлеб
+const FRIENDLY_MASK: int = 2    # Layer 2 = Наши муравьи
+const ENEMY_MASK: int = 4       # Layer 3 = Враги (1 << 2 = 4)
+const RESOURCE_MASK: int = 8    # Layer 4 = Ресурсы (1 << 3 = 8)
+const BUILDING_MASK: int = 16   # Layer 5 = Здания / Муравейник (1 << 4 = 16)
 
 
 func _ready() -> void:
 	add_child(selection_controller)
+	add_child(hover_controller)
+
+
+func _process(_delta: float) -> void:
+	var selected_units: Array[WorkerAnt] = selection_controller.get_selected_units()
+	hover_controller.update_hover(camera, get_viewport().get_mouse_position(), not selected_units.is_empty())
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -50,7 +58,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			dragging_selection = false
 			selection_box.visible = false
 
-		# ПКМ = контекстный приказ (Атака -> Сбор -> Движение)
+		# ПКМ = контекстный приказ (Атака -> Сбор -> Сдача в муравейник -> Движение)
 		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
 			command_right_click(event.position)
 
@@ -121,7 +129,7 @@ func select_units_in_box(start: Vector2, end: Vector2, additive: bool) -> void:
 
 
 # ---------------------------------------------------------
-# КОНТЕКСТНЫЙ ПКМ: СТРОГИЙ ПРИОРИТЕТ ВРАГ -> РЕСУРС -> ЗЕМЛЯ
+# КОНТЕКСТНЫЙ ПКМ: ВРАГ -> РЕСУРС -> МУРАВЕЙНИК -> ЗЕМЛЯ
 # ---------------------------------------------------------
 
 func command_right_click(mouse_position: Vector2) -> void:
@@ -145,7 +153,15 @@ func command_right_click(mouse_position: Vector2) -> void:
 			squad_controller.issue_gather(selected_units, resource, anthill)
 			return
 
-	# 3. И ТОЛЬКО ПОТОМ ЗЕМЛЯ / МИР (Layer 1, WORLD_MASK = 1)
+	# 3. ПОТОМ МУРАВЕЙНИК / ЗДАНИЯ (Layer 5, BUILDING_MASK = 16)
+	var building_hit: Dictionary = raycast_from_mouse(mouse_position, BUILDING_MASK)
+	if not building_hit.is_empty():
+		var bldg = building_hit.get("collider")
+		if bldg is Anthill and is_instance_valid(bldg):
+			squad_controller.issue_deposit(selected_units, bldg)
+			return
+
+	# 4. И ТОЛЬКО ПОТОМ ЗЕМЛЯ / МИР (Layer 1, WORLD_MASK = 1)
 	var ground_hit: Dictionary = raycast_from_mouse(mouse_position, WORLD_MASK)
 	if not ground_hit.is_empty():
 		var target: Vector3 = ground_hit["position"]

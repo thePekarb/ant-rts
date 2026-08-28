@@ -29,7 +29,7 @@ var state: UnitState = UnitState.IDLE
 
 
 # ---------------------------------------------------------
-# НАСТРОЙКИ ДВИЖЕНИЯ V6
+# НАСТРОЙКИ ДВИЖЕНИЯ
 # ---------------------------------------------------------
 @export var walk_speed: float = 1.5
 @export var run_speed: float = 3.0
@@ -46,7 +46,7 @@ var stuck_timer: float = 0.0
 
 
 # ---------------------------------------------------------
-# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ V6
+# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ
 # ---------------------------------------------------------
 @export var max_health: float = 100.0
 var health: float
@@ -69,7 +69,7 @@ var attack_damage_pending: bool = false
 
 
 # ---------------------------------------------------------
-# СБОР И ПЕРЕНОСКА РЕСУРСОВ V6
+# СБОР И ПЕРЕНОСКА РЕСУРСОВ
 # ---------------------------------------------------------
 @export var gather_fx_interval: float = 0.30
 
@@ -115,17 +115,15 @@ func _ready() -> void:
 	else:
 		unit_tag = "[Муравей #" + str(unit_id) + "]"
 
-	# V6: Collision Mask = 1 ТОЛЬКО (физически блокируют мир, камни, стены, хлеб)
+	# Collision Mask = 1 ТОЛЬКО (физически блокируют мир, камни, стены, хлеб)
 	collision_mask = 1
 
-	# Физика прилипания к земле
 	motion_mode = CharacterBody3D.MOTION_MODE_GROUNDED
 	floor_snap_length = floor_snap
 	floor_constant_speed = true
 
 	health = max_health
 
-	# Автоматический расчет радиуса боевых слотов
 	if auto_size_attack_slots:
 		if attack_slots != null and attack_slots.has_method("rebuild_slots"):
 			attack_slots.radius = (body_radius * 2.0) + 0.05
@@ -236,6 +234,14 @@ func gather(resource: ResourceSource, anthill: Anthill) -> void:
 	if resource == null or not is_instance_valid(resource) or resource.is_depleted():
 		return
 
+	target_resource = resource
+	target_anthill = anthill
+
+	# Если муравей уже несёт груз в челюстях — сначала относит его в муравейник, а потом возвращается за ресурсом!
+	if (carried_amount > 0 or carried_visual_node != null) and anthill != null and is_instance_valid(anthill):
+		deliver(anthill)
+		return
+
 	cancel_all_orders()
 	target_resource = resource
 	target_anthill = anthill
@@ -252,6 +258,26 @@ func gather(resource: ResourceSource, anthill: Anthill) -> void:
 			print(unit_tag, " встал в очередь добычи (слот #", current_waiting_slot, ") у ", resource.name)
 		else:
 			print(unit_tag, " занял безопасный слот добычи #", current_gather_slot, " у ", resource.name)
+
+
+func deliver(anthill: Anthill) -> void:
+	if anthill == null or not is_instance_valid(anthill):
+		return
+
+	cancel_all_orders()
+	target_anthill = anthill
+	state = UnitState.CARRYING
+	is_moving = false
+	stuck_timer = 0.0
+	blocked_near_anthill_timer = 0.0
+
+	if anthill.deposit_slots != null:
+		current_deposit_slot = anthill.deposit_slots.reserve_slot(self)
+		if current_deposit_slot == -1 and anthill.deposit_waiting_slots != null:
+			current_deposit_waiting_slot = anthill.deposit_waiting_slots.reserve_slot(self)
+			print(unit_tag, " встал в очередь сдачи (слот #", current_deposit_waiting_slot, ") у ", anthill.name)
+		else:
+			print(unit_tag, " занял безопасный слот сдачи #", current_deposit_slot, " у ", anthill.name)
 
 
 func cancel_all_orders() -> void:
@@ -295,7 +321,7 @@ func die() -> void:
 
 
 # ---------------------------------------------------------
-# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ V6
+# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ
 # ---------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
@@ -470,12 +496,12 @@ func process_attack(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОБЫЧИ V6 (C ПОКАЗОМ КРОШЕК И СНЯТИЕМ КУСОЧКА)
+# ОБРАБОТКА ДОБЫЧИ (GATHERING)
 # ---------------------------------------------------------
 
 func process_gathering(delta: float) -> Vector3:
 	if target_resource == null or not is_instance_valid(target_resource) or target_resource.is_depleted():
-		if carried_amount > 0:
+		if carried_amount > 0 or carried_visual_node != null:
 			state = UnitState.CARRYING
 			return Vector3.ZERO
 		finish_gather()
@@ -526,14 +552,13 @@ func process_gathering(delta: float) -> Vector3:
 			gather_timer -= delta
 			animation_state.travel("Gather")
 
-			# Эффект летящих крошек каждые 0.3 сек
+			# Эффект летящих крошек
 			gather_fx_timer -= delta
 			if gather_fx_timer <= 0.0:
 				gather_fx_timer = gather_fx_interval
 				target_resource.spawn_gather_tick(global_position)
 
 			if gather_timer <= 0.0:
-				# Забираем кусочек, ближайший именно к этому муравью
 				var taken_amount: int = target_resource.take_from(global_position, target_resource.units_per_trip)
 				carried_amount = taken_amount
 
@@ -574,13 +599,17 @@ func process_gathering(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК V6 (CARRYING)
+# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК (CARRYING)
 # ---------------------------------------------------------
 
 func process_carrying(delta: float) -> Vector3:
 	if target_anthill == null or not is_instance_valid(target_anthill):
-		finish_gather()
-		return Vector3.ZERO
+		var dropoffs := get_tree().get_nodes_in_group("resource_dropoff")
+		if not dropoffs.is_empty() and dropoffs[0] is Anthill:
+			target_anthill = dropoffs[0]
+		else:
+			finish_gather()
+			return Vector3.ZERO
 
 	if current_deposit_slot == -1 and target_anthill.deposit_slots != null:
 		current_deposit_slot = target_anthill.deposit_slots.reserve_slot(self)
@@ -615,7 +644,8 @@ func process_carrying(delta: float) -> Vector3:
 		face_point(target_anthill.global_position, delta)
 
 		var res_id: String = target_resource.resource_id if (target_resource and is_instance_valid(target_resource)) else "food"
-		target_anthill.deposit(res_id, carried_amount)
+		var actual_deposit: int = max(1, carried_amount) if (carried_visual_node != null or carried_amount > 0) else carried_amount
+		target_anthill.deposit(res_id, actual_deposit)
 		carried_amount = 0
 
 		if carried_visual_node and is_instance_valid(carried_visual_node):
@@ -652,7 +682,7 @@ func process_carrying(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# РАСЧЁТ ДВИЖЕНИЯ V6
+# РАСЧЁТ ДВИЖЕНИЯ
 # ---------------------------------------------------------
 
 func get_move_velocity_to(target_position: Vector3, base_speed: float, delta: float) -> Vector3:

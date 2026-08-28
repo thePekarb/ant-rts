@@ -86,6 +86,23 @@ func issue_gather(units: Array[WorkerAnt], resource: ResourceSource, anthill: An
 		unit.gather(resource, anthill)
 
 
+func issue_deposit(units: Array[WorkerAnt], anthill: Anthill) -> void:
+	var valid_units: Array[WorkerAnt] = filter_valid_units(units)
+	if valid_units.is_empty() or anthill == null or not is_instance_valid(anthill):
+		return
+
+	valid_units.sort_custom(
+		func(a: WorkerAnt, b: WorkerAnt) -> bool:
+			var da: float = a.global_position.distance_squared_to(anthill.global_position)
+			var db: float = b.global_position.distance_squared_to(anthill.global_position)
+			return da < db
+	)
+
+	print("[SquadController] Отправка отряда (", valid_units.size(), " муравьёв) на сдачу ресурса в муравейник: ", anthill.name)
+	for unit in valid_units:
+		unit.deliver(anthill)
+
+
 func filter_valid_units(units: Array[WorkerAnt]) -> Array[WorkerAnt]:
 	var result: Array[WorkerAnt] = []
 	for u in units:
