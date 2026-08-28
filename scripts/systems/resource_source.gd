@@ -2,15 +2,26 @@ class_name ResourceSource
 extends StaticBody3D
 
 
+signal amount_changed(current_amount: int, max_amount: int)
+
 @export var resource_id: String = "food"
+@export var display_name: String = "Хлеб"
 @export var sync_amount_to_pieces: bool = true
 @export var remaining_amount: int = 42
+@export var max_amount: int = 42
 @export var units_per_trip: int = 1
 @export var gather_duration: float = 1.2
 @export var carry_visual_scene: PackedScene
 @export var piece_vanish_duration: float = 0.18
 
-# Размеры препятствия и безопасных слотов V5
+# Настройки эффекта крошек V6
+@export var gather_fx_enabled: bool = true
+@export var gather_tick_particles: int = 3
+@export var gather_take_particles: int = 8
+@export var particle_lifetime: float = 0.52
+@export var particle_size: float = 0.075
+
+# Размеры препятствия и безопасных слотов
 @export var obstacle_half_size: Vector2 = Vector2(2.55, 3.05)
 @export var gather_surface_reach: float = 0.72
 @export var gather_clearance: float = 0.68
@@ -26,14 +37,20 @@ extends StaticBody3D
 var available_pieces: Array[Node3D] = []
 var active_vanish_count: int = 0
 
+# Общий дешевый материал крошек
+var crumb_particle_material: StandardMaterial3D
+
 
 func _ready() -> void:
-	# V5: Хлеб блокирует физически (Layer 1 = World) и детектируется мышью (Layer 4 = Resource)
+	# V6: Хлеб блокирует физически (Layer 1 = World) и детектируется мышью (Layer 4 = Resource)
 	# 1 | 8 = 9
 	collision_layer = 1 | 8
 	collision_mask = 0
 
-	# Настройка препятствия avoidance
+	crumb_particle_material = StandardMaterial3D.new()
+	crumb_particle_material.albedo_color = Color(0.82, 0.61, 0.33)
+	crumb_particle_material.roughness = 0.85
+
 	if obstacle != null:
 		obstacle.affect_navigation_mesh = true
 		obstacle.avoidance_enabled = true
@@ -45,7 +62,6 @@ func _ready() -> void:
 			Vector3(-obstacle_half_size.x, 0.0,  obstacle_half_size.y)
 		])
 
-	# Настройка прямоугольных безопасных слотов снаружи хлеба
 	if gather_slots != null:
 		gather_slots.shape = SafeInteractionSlots.SlotShape.RECTANGLE
 		gather_slots.rect_half_size = obstacle_half_size + Vector2(gather_clearance, gather_clearance)
@@ -61,13 +77,14 @@ func _ready() -> void:
 		waiting_slots.reach_distance = 0.40
 		waiting_slots.rebuild_slots()
 
-	# Сбор всех визуальных кусочков хлеба
 	collect_visual_pieces(self)
 
 	if sync_amount_to_pieces and not available_pieces.is_empty():
 		remaining_amount = available_pieces.size()
+		max_amount = remaining_amount
 
-	print("[Ресурс: ", name, "] Инициализирован: кусочков=", available_pieces.size(), ", запас=", remaining_amount)
+	amount_changed.emit(remaining_amount, max_amount)
+	print("[Ресурс: ", name, "] Инициализирован: кусочков=", available_pieces.size(), ", запас=", remaining_amount, "/", max_amount)
 
 
 func collect_visual_pieces(node: Node) -> void:
@@ -77,17 +94,26 @@ func collect_visual_pieces(node: Node) -> void:
 		collect_visual_pieces(child)
 
 
+func spawn_gather_tick(worker_pos: Vector3) -> void:
+	if not gather_fx_enabled:
+		return
+
+	# Точка между муравьем и центром хлеба на высоте жвал (~0.25м)
+	var spawn_pos: Vector3 = worker_pos.lerp(global_position, 0.35)
+	spawn_pos.y = 0.25
+	spawn_crumbs(spawn_pos, gather_tick_particles, 0.05, 0.9)
+
+
 func take_from(worker_pos: Vector3, amount: int = 1) -> int:
 	if available_pieces.is_empty() or remaining_amount <= 0:
 		return 0
 
 	var actual_take: int = min(amount, remaining_amount)
-	
+
 	for _i in range(actual_take):
 		if available_pieces.is_empty():
 			break
 
-		# Ищем ближайший визуальный кусочек именно к позиции этого муравья
 		var best_idx: int = -1
 		var best_dist_sq: float = INF
 
@@ -104,14 +130,50 @@ func take_from(worker_pos: Vector3, amount: int = 1) -> int:
 			var target_piece: Node3D = available_pieces[best_idx]
 			available_pieces.remove_at(best_idx)
 			remaining_amount -= 1
+
+			# Взрыв крошек при отрыве куска
+			if gather_fx_enabled:
+				var piece_pos: Vector3 = target_piece.global_position
+				piece_pos.y = max(0.2, piece_pos.y)
+				spawn_crumbs(piece_pos, gather_take_particles, particle_size, 1.6)
+
 			animate_piece_vanish(target_piece)
 
-	print("[Ресурс: ", name, "] Отщипнут кусочек! Осталось: ", remaining_amount, " (активных мешей: ", available_pieces.size(), ")")
+	amount_changed.emit(remaining_amount, max_amount)
+	print("[Ресурс: ", name, "] Отщипнут кусочек! Осталось: ", remaining_amount, "/", max_amount)
 
 	if remaining_amount <= 0 or available_pieces.is_empty():
 		on_fully_depleted()
 
 	return actual_take
+
+
+func spawn_crumbs(pos: Vector3, count: int, cube_size: float, speed: float) -> void:
+	var particles := CPUParticles3D.new()
+	particles.emitting = false
+	particles.one_shot = true
+	particles.explosiveness = 0.92
+	particles.amount = max(1, count)
+	particles.lifetime = particle_lifetime
+	particles.direction = Vector3(0.0, 1.0, 0.0)
+	particles.spread = 60.0
+	particles.initial_velocity_min = speed * 0.7
+	particles.initial_velocity_max = speed * 1.3
+	particles.gravity = Vector3(0.0, -6.5, 0.0)
+
+	var p_mesh := BoxMesh.new()
+	p_mesh.size = Vector3(cube_size, cube_size, cube_size)
+	p_mesh.material = crumb_particle_material
+	particles.mesh = p_mesh
+
+	add_child(particles)
+	particles.global_position = pos
+	particles.emitting = true
+
+	get_tree().create_timer(particle_lifetime + 0.1).timeout.connect(func():
+		if is_instance_valid(particles):
+			particles.queue_free()
+	)
 
 
 func animate_piece_vanish(piece: Node3D) -> void:
@@ -133,7 +195,6 @@ func animate_piece_vanish(piece: Node3D) -> void:
 
 func on_fully_depleted() -> void:
 	print("[Ресурс: ", name, "] Полностью истощён и съеден!")
-	# Отключаем физическую коллизию
 	collision_layer = 0
 	if obstacle != null:
 		obstacle.avoidance_enabled = false

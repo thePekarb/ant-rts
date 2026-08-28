@@ -29,7 +29,7 @@ var state: UnitState = UnitState.IDLE
 
 
 # ---------------------------------------------------------
-# НАСТРОЙКИ ДВИЖЕНИЯ V5
+# НАСТРОЙКИ ДВИЖЕНИЯ V6
 # ---------------------------------------------------------
 @export var walk_speed: float = 1.5
 @export var run_speed: float = 3.0
@@ -46,7 +46,7 @@ var stuck_timer: float = 0.0
 
 
 # ---------------------------------------------------------
-# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ V5
+# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ V6
 # ---------------------------------------------------------
 @export var max_health: float = 100.0
 var health: float
@@ -69,8 +69,10 @@ var attack_damage_pending: bool = false
 
 
 # ---------------------------------------------------------
-# СБОР И ПЕРЕНОСКА РЕСУРСОВ V5
+# СБОР И ПЕРЕНОСКА РЕСУРСОВ V6
 # ---------------------------------------------------------
+@export var gather_fx_interval: float = 0.30
+
 var target_resource: ResourceSource = null
 var target_anthill: Anthill = null
 var current_gather_slot: int = -1
@@ -79,6 +81,7 @@ var current_deposit_slot: int = -1
 var current_deposit_waiting_slot: int = -1
 
 var gather_timer: float = 0.0
+var gather_fx_timer: float = 0.0
 var blocked_near_resource_timer: float = 0.0
 var blocked_near_anthill_timer: float = 0.0
 
@@ -112,7 +115,7 @@ func _ready() -> void:
 	else:
 		unit_tag = "[Муравей #" + str(unit_id) + "]"
 
-	# V5: Collision Mask = 1 ТОЛЬКО (физически блокируют мир, камни, стены, хлеб)
+	# V6: Collision Mask = 1 ТОЛЬКО (физически блокируют мир, камни, стены, хлеб)
 	collision_mask = 1
 
 	# Физика прилипания к земле
@@ -170,7 +173,6 @@ func ensure_selection_indicator() -> void:
 		selection_indicator.name = "SelectionIndicator"
 		add_child(selection_indicator)
 
-	# Настраиваем яркий Unshaded TorusMesh точно под размер муравья
 	var ring_mesh := TorusMesh.new()
 	ring_mesh.inner_radius = body_radius * 1.15
 	ring_mesh.outer_radius = body_radius * 1.45
@@ -241,6 +243,7 @@ func gather(resource: ResourceSource, anthill: Anthill) -> void:
 	is_moving = false
 	stuck_timer = 0.0
 	blocked_near_resource_timer = 0.0
+	gather_fx_timer = 0.0
 
 	if resource.gather_slots != null:
 		current_gather_slot = resource.gather_slots.reserve_slot(self)
@@ -260,6 +263,7 @@ func cancel_all_orders() -> void:
 	attack_damage_pending = false
 	attack_animation_timer = 0.0
 	gather_timer = 0.0
+	gather_fx_timer = 0.0
 	blocked_near_resource_timer = 0.0
 	blocked_near_anthill_timer = 0.0
 
@@ -291,7 +295,7 @@ func die() -> void:
 
 
 # ---------------------------------------------------------
-# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ V5
+# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ V6
 # ---------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
@@ -466,7 +470,7 @@ func process_attack(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОБЫЧИ V5 (ДЕТАЛЬНОЕ СНЯТИЕ БЛИЖАЙШИХ КУСОЧКОВ)
+# ОБРАБОТКА ДОБЫЧИ V6 (C ПОКАЗОМ КРОШЕК И СНЯТИЕМ КУСОЧКА)
 # ---------------------------------------------------------
 
 func process_gathering(delta: float) -> Vector3:
@@ -516,13 +520,20 @@ func process_gathering(delta: float) -> Vector3:
 
 		if gather_timer <= 0.0:
 			gather_timer = target_resource.gather_duration
+			gather_fx_timer = 0.1
 			animation_state.travel("Gather")
 		else:
 			gather_timer -= delta
 			animation_state.travel("Gather")
 
+			# Эффект летящих крошек каждые 0.3 сек
+			gather_fx_timer -= delta
+			if gather_fx_timer <= 0.0:
+				gather_fx_timer = gather_fx_interval
+				target_resource.spawn_gather_tick(global_position)
+
 			if gather_timer <= 0.0:
-				# V5: Забираем кусочек, ближайший именно к этому муравью!
+				# Забираем кусочек, ближайший именно к этому муравью
 				var taken_amount: int = target_resource.take_from(global_position, target_resource.units_per_trip)
 				carried_amount = taken_amount
 
@@ -536,6 +547,7 @@ func process_gathering(delta: float) -> Vector3:
 				target_resource.gather_slots.release_slot_index(current_gather_slot, self)
 				current_gather_slot = -1
 				blocked_near_resource_timer = 0.0
+				gather_fx_timer = 0.0
 
 				state = UnitState.CARRYING
 				is_moving = false
@@ -562,7 +574,7 @@ func process_gathering(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК V5 (CARRYING)
+# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК V6 (CARRYING)
 # ---------------------------------------------------------
 
 func process_carrying(delta: float) -> Vector3:
@@ -640,7 +652,7 @@ func process_carrying(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# РАСЧЁТ ДВИЖЕНИЯ V5
+# РАСЧЁТ ДВИЖЕНИЯ V6
 # ---------------------------------------------------------
 
 func get_move_velocity_to(target_position: Vector3, base_speed: float, delta: float) -> Vector3:
@@ -796,6 +808,7 @@ func finish_gather() -> void:
 	target_resource = null
 	target_anthill = null
 	gather_timer = 0.0
+	gather_fx_timer = 0.0
 	blocked_near_resource_timer = 0.0
 	blocked_near_anthill_timer = 0.0
 	desired_velocity = Vector3.ZERO

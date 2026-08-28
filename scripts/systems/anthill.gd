@@ -2,6 +2,8 @@ class_name Anthill
 extends StaticBody3D
 
 
+signal storage_changed(resource_id: StringName, current_amount: int, delta_amount: int)
+
 @export var obstacle_radius: float = 1.15
 @export var deposit_clearance: float = 0.62
 @export var waiting_extra_clearance: float = 0.90
@@ -19,6 +21,8 @@ var stored_resources: Dictionary = {
 
 
 func _ready() -> void:
+	add_to_group("resource_dropoff")
+
 	# Муравейник на Collision Layer 5 (маска 16) и Layer 1 (Здания/Препятствия) -> 1 | 16 = 17
 	collision_layer = 17
 	collision_mask = 0
@@ -45,8 +49,15 @@ func _ready() -> void:
 
 
 func deposit(resource_id: String, amount: int) -> void:
-	stored_resources[resource_id] = stored_resources.get(resource_id, 0) + amount
-	print("[Муравейник] Сдано ", amount, " ед. ", resource_id, "! Всего в хранилище: ", stored_resources[resource_id])
+	var r_id: StringName = StringName(resource_id)
+	stored_resources[r_id] = stored_resources.get(r_id, 0) + amount
+	var total: int = stored_resources[r_id]
+	print("[Муравейник] Сдано ", amount, " ед. ", resource_id, "! Всего в хранилище: ", total)
+	storage_changed.emit(r_id, total, amount)
+
+
+func get_resource_amount(resource_id: StringName) -> int:
+	return stored_resources.get(resource_id, 0)
 
 
 func is_point_near_surface(pos: Vector3, max_dist: float = 0.85) -> bool:

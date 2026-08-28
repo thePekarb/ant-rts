@@ -5,7 +5,9 @@
 [ext_resource type="PackedScene" path="res://scenes/units/worker_ant.tscn" id="3_ant"]
 [ext_resource type="PackedScene" path="res://scenes/world/BreadResource.tscn" id="4_bread"]
 [ext_resource type="PackedScene" path="res://scenes/buildings/Anthill.tscn" id="5_anthill"]
-[ext_resource type="Script" uid="uid://cbqpr0k3jnuas" path="res://scripts/camera/rts_camera.gd" id="6_cam"]
+[ext_resource type="Script" path="res://scripts/camera/rts_camera.gd" id="6_cam"]
+[ext_resource type="Script" path="res://scripts/ui/resource_hover_ui.gd" id="7_hover"]
+[ext_resource type="Script" path="res://scripts/ui/colony_resource_hud.gd" id="8_hud"]
 
 [sub_resource type="NavigationMesh" id="NavigationMesh_g857q"]
 vertices = PackedVector3Array(-14.5, 0, -14.5, 0, 0, -14.5, 14.5, 0, -14.5, 14.5, 0, 0, 14.5, 0, 14.5, 0, 0, 14.5, -14.5, 0, 14.5, -14.5, 0, 0, -1.6, 0, -4.1, 1.6, 0, -4.1, 1.6, 0, -0.9, -1.6, 0, -0.9)
@@ -118,3 +120,10 @@ offset_right = 40.0
 offset_bottom = 40.0
 mouse_filter = 2
 color = Color(0.84705883, 0.65882355, 0.23137255, 0.39215687)
+
+[node name="ResourceHoverUI" type="CanvasLayer" parent="."]
+script = ExtResource("7_hover")
+
+[node name="ColonyResourceHUD" type="CanvasLayer" parent="."]
+script = ExtResource("8_hud")
+anthill_path = NodePath("../Anthill")
