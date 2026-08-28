@@ -2,12 +2,12 @@
 
 [ext_resource type="Script" uid="uid://b1jp734dibj6t" path="res://scripts/systems/main.gd" id="1_nha0i"]
 [ext_resource type="Script" uid="uid://d1a65q3f32m7a" path="res://scripts/systems/squad_controller.gd" id="2_squad"]
-[ext_resource type="PackedScene" path="res://scenes/units/worker_ant.tscn" id="3_ant"]
+[ext_resource type="PackedScene" uid="uid://d2ulqrd708qmy" path="res://scenes/units/worker_ant.tscn" id="3_ant"]
 [ext_resource type="PackedScene" path="res://scenes/world/BreadResource.tscn" id="4_bread"]
 [ext_resource type="PackedScene" path="res://scenes/buildings/Anthill.tscn" id="5_anthill"]
-[ext_resource type="Script" path="res://scripts/camera/rts_camera.gd" id="6_cam"]
-[ext_resource type="Script" path="res://scripts/ui/resource_hover_ui.gd" id="7_hover"]
-[ext_resource type="Script" path="res://scripts/ui/colony_resource_hud.gd" id="8_hud"]
+[ext_resource type="Script" uid="uid://cbqpr0k3jnuas" path="res://scripts/camera/rts_camera.gd" id="6_cam"]
+[ext_resource type="Script" uid="uid://bwqontmg2picu" path="res://scripts/ui/resource_hover_ui.gd" id="7_hover"]
+[ext_resource type="Script" uid="uid://uhmvgkp4r3fa" path="res://scripts/ui/colony_resource_hud.gd" id="8_hud"]
 
 [sub_resource type="NavigationMesh" id="NavigationMesh_g857q"]
 vertices = PackedVector3Array(-14.5, 0, -14.5, 0, 0, -14.5, 14.5, 0, -14.5, 14.5, 0, 0, 14.5, 0, 14.5, 0, 0, 14.5, -14.5, 0, 14.5, -14.5, 0, 0, -1.6, 0, -4.1, 1.6, 0, -4.1, 1.6, 0, -0.9, -1.6, 0, -0.9)
@@ -70,6 +70,36 @@ radius = 1.6
 vertices = PackedVector3Array(-1.3, 0, -1.3, 1.3, 0, -1.3, 1.3, 0, 1.3, -1.3, 0, 1.3)
 affect_navigation_mesh = true
 
+[node name="Rock2" type="StaticBody3D" parent="NavigationRegion3D" unique_id=536219626]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.1026344, 0.75, -4.0813236)
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="NavigationRegion3D/Rock2" unique_id=1224177616]
+mesh = SubResource("BoxMesh_rock")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="NavigationRegion3D/Rock2" unique_id=1462585985]
+shape = SubResource("BoxShape3D_rock")
+
+[node name="NavigationObstacle3D" type="NavigationObstacle3D" parent="NavigationRegion3D/Rock2" unique_id=251696543]
+radius = 1.6
+vertices = PackedVector3Array(-1.3, 0, -1.3, 1.3, 0, -1.3, 1.3, 0, 1.3, -1.3, 0, 1.3)
+affect_navigation_mesh = true
+
+[node name="Rock3" type="StaticBody3D" parent="NavigationRegion3D" unique_id=530750737]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.586173, 0.75, -4.0813236)
+collision_mask = 0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="NavigationRegion3D/Rock3" unique_id=1751068742]
+mesh = SubResource("BoxMesh_rock")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="NavigationRegion3D/Rock3" unique_id=1640199442]
+shape = SubResource("BoxShape3D_rock")
+
+[node name="NavigationObstacle3D" type="NavigationObstacle3D" parent="NavigationRegion3D/Rock3" unique_id=358598]
+radius = 1.6
+vertices = PackedVector3Array(-1.3, 0, -1.3, 1.3, 0, -1.3, 1.3, 0, 1.3, -1.3, 0, 1.3)
+affect_navigation_mesh = true
+
 [node name="WorkerAnt" parent="." unique_id=1552333910 instance=ExtResource("3_ant")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.2, 0)
 debug_movement = true
@@ -99,7 +129,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3.3862073, 0.2, 1.6978016)
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.469864, 0.2, 1.6978016)
 
 [node name="EnemyAnt" parent="." unique_id=781962844 instance=ExtResource("3_ant")]
-transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, 0, 0.2, -6)
+transform = Transform3D(-1, 0, -8.74228e-08, 0, 1, 0, 8.74228e-08, 0, -1, -6.48096, 0.2, -7.0564904)
 collision_layer = 4
 
 [node name="Sun" type="DirectionalLight3D" parent="." unique_id=854794205]
@@ -121,9 +151,9 @@ offset_bottom = 40.0
 mouse_filter = 2
 color = Color(0.84705883, 0.65882355, 0.23137255, 0.39215687)
 
-[node name="ResourceHoverUI" type="CanvasLayer" parent="."]
+[node name="ResourceHoverUI" type="CanvasLayer" parent="." unique_id=1633477405]
 script = ExtResource("7_hover")
 
-[node name="ColonyResourceHUD" type="CanvasLayer" parent="."]
+[node name="ColonyResourceHUD" type="CanvasLayer" parent="." unique_id=1329460738]
 script = ExtResource("8_hud")
 anthill_path = NodePath("../Anthill")

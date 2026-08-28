@@ -7,17 +7,11 @@ signal amount_changed(current_amount: int, max_amount: int)
 @export var resource_id: String = "food"
 @export var display_name: String = "Хлеб"
 @export var sync_amount_to_pieces: bool = true
-@export var remaining_amount: int = 81
-@export var max_amount: int = 81
+@export var remaining_amount: int = 16
+@export var max_amount: int = 16
 @export var units_per_trip: int = 1
 @export var gather_duration: float = 1.2
 @export var carry_visual_scene: PackedScene
-
-# Настройки маски выкусывания V9
-@export var mask_resolution: int = 128
-@export var bite_radius_world: float = 0.42
-@export var bite_soft_edge_world: float = 0.08
-@export var invert_mask_v: bool = false
 
 # Настройки эффекта крошек
 @export var gather_fx_enabled: bool = true
@@ -39,19 +33,16 @@ signal amount_changed(current_amount: int, max_amount: int)
 @onready var waiting_slots: SafeInteractionSlots = $WaitingSlots
 @onready var obstacle: NavigationObstacle3D = get_node_or_null("NavigationObstacle3D")
 
-var available_cells: Array[Node3D] = []
-var active_take_count: int = 0
+var chunks_mesh: MeshInstance3D = null
+var cells_by_id: Dictionary = {} # int -> BreadCell
+var cells_list: Array[BreadCell] = []
 
-# Процедурная текстура маски
-var mask_image: Image
-var mask_texture: ImageTexture
-var bread_top_mesh_instance: MeshInstance3D = null
-
+var hidden_material: StandardMaterial3D
 var crumb_particle_material: StandardMaterial3D
 
 
 func _ready() -> void:
-	# V9: Хлеб блокирует физически (Layer 1 = World) и детектируется мышью (Layer 4 = Resource)
+	# V10.1: Хлеб блокирует физически (Layer 1 = World) и детектируется мышью (Layer 4 = Resource)
 	# 1 | 8 = 9
 	collision_layer = 1 | 8
 	collision_mask = 0
@@ -59,6 +50,13 @@ func _ready() -> void:
 	crumb_particle_material = StandardMaterial3D.new()
 	crumb_particle_material.albedo_color = Color(0.90, 0.83, 0.65)
 	crumb_particle_material.roughness = 0.85
+
+	# Невидимый материал для скрытия съеденной поверхности
+	hidden_material = StandardMaterial3D.new()
+	hidden_material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hidden_material.albedo_color = Color(0.0, 0.0, 0.0, 0.0)
+	hidden_material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	hidden_material.no_depth_test = false
 
 	if obstacle != null:
 		obstacle.affect_navigation_mesh = true
@@ -86,73 +84,61 @@ func _ready() -> void:
 		waiting_slots.reach_distance = 0.40
 		waiting_slots.rebuild_slots()
 
-	collect_logical_cells(self)
-	find_bread_top(self)
-	init_mask_shader()
+	find_chunks_mesh(self)
+	init_bread_cells(self)
 
-	if sync_amount_to_pieces and not available_cells.is_empty():
-		remaining_amount = available_cells.size()
+	if sync_amount_to_pieces and not cells_list.is_empty():
+		remaining_amount = cells_list.size()
 		max_amount = remaining_amount
 
 	amount_changed.emit(remaining_amount, max_amount)
-	print("[Ресурс V9: ", name, "] Инициализирован: логических ячеек=", available_cells.size(), ", запас=", remaining_amount, "/", max_amount)
+	print("[Ресурс V10.1: ", name, "] Инициализирован: ячеек=", cells_list.size(), ", запас=", remaining_amount, "/", max_amount)
 
 
-func collect_logical_cells(node: Node) -> void:
+func find_chunks_mesh(node: Node) -> void:
 	for child in node.get_children():
-		if child.name.begins_with("BreadCell_") and child is Node3D:
-			available_cells.append(child)
-		collect_logical_cells(child)
-
-
-func find_bread_top(node: Node) -> void:
-	for child in node.get_children():
-		if child is MeshInstance3D and child.name == "BreadTop":
-			bread_top_mesh_instance = child
+		if child is MeshInstance3D and (child.name.begins_with("BreadChunksMesh") or child.name == "Model"):
+			chunks_mesh = child
 			return
-		find_bread_top(child)
+		find_chunks_mesh(child)
 
 
-func init_mask_shader() -> void:
-	if bread_top_mesh_instance == null:
-		return
+func init_bread_cells(node: Node) -> void:
+	for child in node.get_children():
+		if child.name.begins_with("BreadCell_"):
+			# Парсим имя формата BreadCell_<ID>_<E|I>_N<neighbor-ids>
+			# Например: BreadCell_03_E_N02-06-07
+			var parts: PackedStringArray = child.name.split("_")
+			if parts.size() >= 3:
+				var cid: int = parts[1].to_int()
+				var exposed_flag: String = parts[2]
+				var starts_exp: bool = (exposed_flag == "E")
 
-	# Создаем белую текстуру маски 128x128
-	mask_image = Image.create(mask_resolution, mask_resolution, false, Image.FORMAT_R8)
-	mask_image.fill(Color(1.0, 1.0, 1.0, 1.0))
-	mask_texture = ImageTexture.create_from_image(mask_image)
+				var neighbor_list: Array[int] = []
+				if parts.size() >= 4 and parts[3].begins_with("N"):
+					var n_str: String = parts[3].substr(1)
+					if not n_str.is_empty():
+						var n_parts: PackedStringArray = n_str.split("-")
+						for np in n_parts:
+							if not np.is_empty():
+								neighbor_list.append(np.to_int())
 
-	var shader := Shader.new()
-	shader.code = """
-shader_type spatial;
-render_mode blend_mix, depth_draw_opaque, cull_back;
+				var cell: BreadCell = BreadCell.new()
+				cell.name = "LogicalCell_%02d" % cid
+				cell.cell_id = cid
+				cell.surface_index = cid
+				cell.starts_exposed = starts_exp
+				cell.is_exposed = starts_exp
+				cell.is_removed = false
+				cell.neighbor_ids = neighbor_list
+				cell.position = child.position
 
-uniform sampler2D mask_texture : hint_default_white, filter_linear;
-uniform vec4 crumb_color : source_color = vec4(0.90, 0.83, 0.65, 1.0);
-uniform vec4 crust_color : source_color = vec4(0.66, 0.47, 0.25, 1.0);
-uniform float roughness : hint_range(0.0, 1.0) = 0.86;
+				child.add_child(cell)
 
-void fragment() {
-	float mask = texture(mask_texture, UV).r;
-	if (mask < 0.5) {
-		discard;
-	}
-	vec2 centered = (UV - vec2(0.5)) * 2.0;
-	float d = length(centered);
-	vec3 col = mix(crumb_color.rgb, crust_color.rgb, smoothstep(0.72, 0.88, d));
-	ALBEDO = col;
-	ROUGHNESS = roughness;
-}
-"""
+				cells_by_id[cid] = cell
+				cells_list.append(cell)
 
-	var mat := ShaderMaterial.new()
-	mat.shader = shader
-	mat.set_shader_parameter("mask_texture", mask_texture)
-	mat.set_shader_parameter("crumb_color", Color(0.90, 0.83, 0.65, 1.0))
-	mat.set_shader_parameter("crust_color", Color(0.66, 0.47, 0.25, 1.0))
-	mat.set_shader_parameter("roughness", 0.86)
-
-	bread_top_mesh_instance.material_override = mat
+		init_bread_cells(child)
 
 
 func spawn_gather_tick(worker_pos: Vector3) -> void:
@@ -165,93 +151,111 @@ func spawn_gather_tick(worker_pos: Vector3) -> void:
 	spawn_crumbs(spawn_pos, gather_tick_particles, 0.04, 0.6)
 
 
-func take_from(worker_pos: Vector3, amount: int = 1) -> int:
-	if available_cells.is_empty() or remaining_amount <= 0:
-		return 0
+func reserve_piece_for_worker(worker: Node3D) -> BreadCell:
+	# Освобождаем предыдущую бронь, если была
+	release_piece_reservation(worker)
 
-	var actual_take: int = min(amount, remaining_amount)
-
+	var worker_pos: Vector3 = worker.global_position
 	var to_worker_2d := Vector2(worker_pos.x - global_position.x, worker_pos.z - global_position.z)
 	var dir_to_worker: Vector2 = to_worker_2d.normalized() if to_worker_2d.length_squared() > 0.001 else Vector2.RIGHT
 
-	for _i in range(actual_take):
-		if available_cells.is_empty():
+	var best_cell: BreadCell = null
+	var best_score: float = INF
+
+	for cell in cells_list:
+		if not is_instance_valid(cell) or cell.is_removed or not cell.is_exposed:
+			continue
+		if cell.reserved_by != null and is_instance_valid(cell.reserved_by) and cell.reserved_by != worker:
+			continue
+
+		var cell_world_pos: Vector3 = cell.global_position
+		var cell_vec := Vector2(cell_world_pos.x - global_position.x, cell_world_pos.z - global_position.z)
+		var cell_dist_from_center: float = cell_vec.length()
+		var cell_dir: Vector2 = cell_vec.normalized() if cell_dist_from_center > 0.001 else dir_to_worker
+
+		var alignment: float = dir_to_worker.dot(cell_dir)
+		var dist_to_worker: float = worker_pos.distance_to(cell_world_pos)
+
+		var score: float = dist_to_worker * 1.2 - (alignment * 2.5) - (cell_dist_from_center * 0.40)
+
+		if score < best_score:
+			best_score = score
+			best_cell = cell
+
+	if best_cell != null:
+		best_cell.reserved_by = worker
+
+	return best_cell
+
+
+func release_piece_reservation(worker: Node3D) -> void:
+	for cell in cells_list:
+		if is_instance_valid(cell) and cell.reserved_by == worker:
+			cell.reserved_by = null
+
+
+func consume_reserved_piece(worker: Node3D) -> int:
+	var target_cell: BreadCell = null
+	for cell in cells_list:
+		if is_instance_valid(cell) and cell.reserved_by == worker and not cell.is_removed:
+			target_cell = cell
 			break
 
-		var best_idx: int = -1
-		var best_score: float = INF
+	if target_cell == null:
+		# Fallback: резервируем и сразу съедаем
+		target_cell = reserve_piece_for_worker(worker)
 
-		for j in range(available_cells.size()):
-			var cell: Node3D = available_cells[j]
-			if not is_instance_valid(cell):
-				continue
+	if target_cell == null:
+		return 0
 
-			var cell_vec := Vector2(cell.global_position.x - global_position.x, cell.global_position.z - global_position.z)
-			var cell_dist_from_center: float = cell_vec.length()
-			var cell_dir: Vector2 = cell_vec.normalized() if cell_dist_from_center > 0.001 else dir_to_worker
+	target_cell.is_removed = true
+	target_cell.reserved_by = null
 
-			var alignment: float = dir_to_worker.dot(cell_dir)
-			var dist_to_worker: float = worker_pos.distance_to(cell.global_position)
+	# Скрываем соответствующую поверхность в едином Mesh
+	if chunks_mesh != null:
+		chunks_mesh.set_surface_override_material(target_cell.surface_index, hidden_material)
 
-			var score: float = dist_to_worker * 1.2 - (alignment * 2.2) - (cell_dist_from_center * 0.40)
+	# Открываем соседние куски (frontier расширяется вглубь)
+	for nid in target_cell.neighbor_ids:
+		if cells_by_id.has(nid):
+			var neighbor: BreadCell = cells_by_id[nid]
+			if is_instance_valid(neighbor) and not neighbor.is_removed:
+				neighbor.is_exposed = true
 
-			if score < best_score:
-				best_score = score
-				best_idx = j
+	remaining_amount = max(0, remaining_amount - 1)
 
-		if best_idx != -1:
-			var target_cell: Node3D = available_cells[best_idx]
-			available_cells.remove_at(best_idx)
-			remaining_amount -= 1
-
-			# Выкусываем область на маске BreadTop
-			apply_bite_to_mask(target_cell.global_position)
-
-			if gather_fx_enabled:
-				var cell_pos: Vector3 = target_cell.global_position
-				cell_pos.y = max(0.22, cell_pos.y)
-				spawn_crumbs(cell_pos, gather_take_particles, particle_size, 1.2)
+	if gather_fx_enabled:
+		var piece_pos: Vector3 = target_cell.global_position
+		piece_pos.y = max(0.22, piece_pos.y)
+		spawn_crumbs(piece_pos, gather_take_particles, particle_size, 1.2)
 
 	amount_changed.emit(remaining_amount, max_amount)
-	print("[Ресурс V9: ", name, "] Выкусан кусочек! Осталось ячеек: ", remaining_amount, "/", max_amount)
+	print("[Ресурс V10.1: ", name, "] Съеден кусок #", target_cell.cell_id, "! Осталось: ", remaining_amount, "/", max_amount)
 
-	if remaining_amount <= 0 or available_cells.is_empty():
+	if remaining_amount <= 0:
 		on_fully_depleted()
 
+	return 1
+
+
+func take_from(worker_pos: Vector3, amount: int = 1) -> int:
+	# Совместимость со старым API
+	if remaining_amount <= 0:
+		return 0
+
+	var dummy_worker: Node3D = Node3D.new()
+	add_child(dummy_worker)
+	dummy_worker.global_position = worker_pos
+
+	var actual_take: int = 0
+	for _i in range(amount):
+		if remaining_amount <= 0:
+			break
+		var taken: int = consume_reserved_piece(dummy_worker)
+		actual_take += taken
+
+	dummy_worker.queue_free()
 	return actual_take
-
-
-func apply_bite_to_mask(world_pos: Vector3) -> void:
-	if mask_image == null or mask_texture == null:
-		return
-
-	var local_x: float = world_pos.x - global_position.x
-	var local_z: float = world_pos.z - global_position.z
-
-	var hw: float = obstacle_half_size.x
-	var hh: float = obstacle_half_size.y
-
-	var u: float = clampf((local_x + hw) / (hw * 2.0), 0.0, 1.0)
-	var v: float = clampf((local_z + hh) / (hh * 2.0), 0.0, 1.0)
-	if invert_mask_v:
-		v = 1.0 - v
-
-	var center_px: int = int(u * float(mask_resolution))
-	var center_py: int = int(v * float(mask_resolution))
-
-	var rad_px: float = (bite_radius_world / (hw * 2.0)) * float(mask_resolution)
-	var rad_int: int = int(ceil(rad_px + 2.0))
-
-	for dy in range(-rad_int, rad_int + 1):
-		for dx in range(-rad_int, rad_int + 1):
-			var px: int = center_px + dx
-			var py: int = center_py + dy
-			if px >= 0 and px < mask_resolution and py >= 0 and py < mask_resolution:
-				var dist: float = sqrt(float(dx * dx + dy * dy))
-				if dist <= rad_px:
-					mask_image.set_pixel(px, py, Color(0.0, 0.0, 0.0, 1.0))
-
-	mask_texture.update(mask_image)
 
 
 func spawn_crumbs(pos: Vector3, count: int, cube_size: float, speed: float) -> void:
@@ -283,7 +287,7 @@ func spawn_crumbs(pos: Vector3, count: int, cube_size: float, speed: float) -> v
 
 
 func on_fully_depleted() -> void:
-	print("[Ресурс V9: ", name, "] Полностью истощён и съеден!")
+	print("[Ресурс V10.1: ", name, "] Полностью съеден!")
 	collision_layer = 0
 	if obstacle != null:
 		obstacle.avoidance_enabled = false
@@ -299,7 +303,7 @@ func harvest(amount: int = 1) -> int:
 
 
 func is_depleted() -> bool:
-	return remaining_amount <= 0 or available_cells.is_empty()
+	return remaining_amount <= 0
 
 
 func is_point_near_surface(pos: Vector3, max_dist: float = 0.85) -> bool:

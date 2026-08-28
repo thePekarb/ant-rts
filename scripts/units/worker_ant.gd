@@ -87,6 +87,7 @@ var blocked_near_anthill_timer: float = 0.0
 
 var carried_amount: int = 0
 var carried_visual_node: Node3D = null
+var reserved_bread_cell: BreadCell = null
 
 
 # ---------------------------------------------------------
@@ -547,6 +548,8 @@ func process_gathering(delta: float) -> Vector3:
 		if gather_timer <= 0.0:
 			gather_timer = target_resource.gather_duration
 			gather_fx_timer = 0.1
+			if target_resource.has_method("reserve_piece_for_worker"):
+				reserved_bread_cell = target_resource.reserve_piece_for_worker(self)
 			animation_state.travel("Gather")
 		else:
 			gather_timer -= delta
@@ -559,8 +562,14 @@ func process_gathering(delta: float) -> Vector3:
 				target_resource.spawn_gather_tick(global_position)
 
 			if gather_timer <= 0.0:
-				var taken_amount: int = target_resource.take_from(global_position, target_resource.units_per_trip)
+				var taken_amount: int = 0
+				if target_resource.has_method("consume_reserved_piece"):
+					taken_amount = target_resource.consume_reserved_piece(self)
+				else:
+					taken_amount = target_resource.take_from(global_position, target_resource.units_per_trip)
+				
 				carried_amount = taken_amount
+				reserved_bread_cell = null
 
 				if target_resource.carry_visual_scene != null and carried_amount > 0:
 					if carried_visual_node and is_instance_valid(carried_visual_node):
@@ -806,9 +815,12 @@ func release_gather_reservation() -> void:
 			target_resource.gather_slots.release_slot_index(current_gather_slot, self)
 		if current_waiting_slot != -1 and target_resource.waiting_slots != null:
 			target_resource.waiting_slots.release_slot_index(current_waiting_slot, self)
+		if target_resource.has_method("release_piece_reservation"):
+			target_resource.release_piece_reservation(self)
 
 	current_gather_slot = -1
 	current_waiting_slot = -1
+	reserved_bread_cell = null
 
 
 func release_deposit_reservation() -> void:
