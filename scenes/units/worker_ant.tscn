@@ -176,7 +176,7 @@ tree_root = SubResource("AnimationNodeStateMachine_root")
 anim_player = NodePath("../ant/AnimationPlayer")
 
 [node name="CarrySocket" type="Marker3D" parent="." unique_id=546579385]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, -0.48)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.22, -0.52)
 
 [node name="AttackSlots" type="Node3D" parent="." unique_id=113630935]
 script = ExtResource("3_slots")

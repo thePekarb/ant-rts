@@ -98,10 +98,11 @@ func spawn_gather_tick(worker_pos: Vector3) -> void:
 	if not gather_fx_enabled:
 		return
 
-	# Точка между муравьем и центром хлеба на высоте жвал (~0.25м)
-	var spawn_pos: Vector3 = worker_pos.lerp(global_position, 0.35)
-	spawn_pos.y = 0.25
-	spawn_crumbs(spawn_pos, gather_tick_particles, 0.05, 0.9)
+	# Точка прямо перед жвалами муравья у поверхности хлеба
+	var dir_to_bread: Vector3 = (global_position - worker_pos).normalized()
+	var spawn_pos: Vector3 = worker_pos + dir_to_bread * 0.38
+	spawn_pos.y = 0.22
+	spawn_crumbs(spawn_pos, gather_tick_particles, 0.04, 0.6)
 
 
 func take_from(worker_pos: Vector3, amount: int = 1) -> int:

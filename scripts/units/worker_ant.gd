@@ -567,6 +567,8 @@ func process_gathering(delta: float) -> Vector3:
 						carried_visual_node.queue_free()
 					carried_visual_node = target_resource.carry_visual_scene.instantiate()
 					carry_socket.add_child(carried_visual_node)
+					carried_visual_node.position = Vector3.ZERO
+					carried_visual_node.rotation = Vector3.ZERO
 
 				# Освобождаем безопасный слот добычи для ожидающих
 				target_resource.gather_slots.release_slot_index(current_gather_slot, self)
