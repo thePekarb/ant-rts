@@ -1,7 +1,7 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://scripts/systems/anthill.gd" id="1_anthill"]
-[ext_resource type="Script" path="res://scripts/systems/radial_slots.gd" id="2_slots"]
+[ext_resource type="Script" path="res://scripts/systems/safe_interaction_slots.gd" id="2_safe_slots"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_dirt"]
 albedo_color = Color(0.35, 0.22, 0.12, 1)
@@ -10,17 +10,23 @@ roughness = 0.95
 [sub_resource type="CylinderMesh" id="CylinderMesh_mound"]
 material = SubResource("StandardMaterial3D_dirt")
 top_radius = 0.5
-bottom_radius = 1.2
+bottom_radius = 1.15
 height = 0.6
 radial_segments = 16
 
 [sub_resource type="CylinderShape3D" id="CylinderShape3D_mound"]
 height = 0.6
-radius = 1.2
+radius = 1.15
 
 [node name="Anthill" type="StaticBody3D"]
 collision_layer = 17
+collision_mask = 0
 script = ExtResource("1_anthill")
+obstacle_radius = 1.15
+deposit_clearance = 0.62
+waiting_extra_clearance = 0.9
+deposit_slot_count = 8
+waiting_slot_count = 14
 
 [node name="Model" type="MeshInstance3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
@@ -30,8 +36,18 @@ mesh = SubResource("CylinderMesh_mound")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, 0)
 shape = SubResource("CylinderShape3D_mound")
 
+[node name="NavigationObstacle3D" type="NavigationObstacle3D" parent="."]
+radius = 1.15
+affect_navigation_mesh = true
+avoidance_enabled = true
+use_3d_avoidance = false
+
 [node name="DepositSlots" type="Node3D" parent="."]
-script = ExtResource("2_slots")
-radius = 1.4
-slot_count = 12
-reach_distance = 0.25
+script = ExtResource("2_safe_slots")
+slot_count = 8
+reach_distance = 0.4
+
+[node name="DepositWaitingSlots" type="Node3D" parent="."]
+script = ExtResource("2_safe_slots")
+slot_count = 14
+reach_distance = 0.4

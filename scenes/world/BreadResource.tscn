@@ -3,10 +3,10 @@
 [ext_resource type="Script" path="res://scripts/systems/resource_source.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://assets/models/bread_resource.glb" id="2_model"]
 [ext_resource type="PackedScene" path="res://scenes/world/bread_chunk.tscn" id="3_chunk"]
-[ext_resource type="Script" path="res://scripts/systems/radial_slots.gd" id="4_slots"]
+[ext_resource type="Script" path="res://scripts/systems/safe_interaction_slots.gd" id="4_safe_slots"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_bread"]
-size = Vector3(5.2, 0.8, 6.2)
+size = Vector3(5.1, 0.8, 6.1)
 
 [node name="BreadResource" type="StaticBody3D"]
 collision_layer = 9
@@ -16,6 +16,11 @@ remaining_amount = 30
 units_per_trip = 1
 gather_duration = 1.2
 carry_visual_scene = ExtResource("3_chunk")
+obstacle_half_size = Vector2(2.55, 3.05)
+gather_clearance = 0.68
+waiting_extra_clearance = 0.95
+gather_slot_count = 10
+waiting_slot_count = 16
 
 [node name="Model" parent="." instance=ExtResource("2_model")]
 
@@ -28,16 +33,14 @@ radius = 3.6
 affect_navigation_mesh = true
 avoidance_enabled = true
 use_3d_avoidance = false
-vertices = PackedVector3Array(-2.8, 0, -3.3, 2.8, 0, -3.3, 2.8, 0, 3.3, -2.8, 0, 3.3)
+vertices = PackedVector3Array(-2.55, 0, -3.05, 2.55, 0, -3.05, 2.55, 0, 3.05, -2.55, 0, 3.05)
 
 [node name="GatherSlots" type="Node3D" parent="."]
-script = ExtResource("4_slots")
-radius = 3.2
+script = ExtResource("4_safe_slots")
 slot_count = 10
-reach_distance = 0.3
+reach_distance = 0.4
 
 [node name="WaitingSlots" type="Node3D" parent="."]
-script = ExtResource("4_slots")
-radius = 4.2
+script = ExtResource("4_safe_slots")
 slot_count = 16
-reach_distance = 0.3
+reach_distance = 0.4

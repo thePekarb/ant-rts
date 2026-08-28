@@ -29,7 +29,7 @@ var state: UnitState = UnitState.IDLE
 
 
 # ---------------------------------------------------------
-# НАСТРОЙКИ ДВИЖЕНИЯ V3
+# НАСТРОЙКИ ДВИЖЕНИЯ V4
 # ---------------------------------------------------------
 @export var walk_speed: float = 1.5
 @export var run_speed: float = 3.0
@@ -46,7 +46,7 @@ var stuck_timer: float = 0.0
 
 
 # ---------------------------------------------------------
-# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ V3
+# ЗДОРОВЬЕ И БЛИЖНИЙ БОЙ V4
 # ---------------------------------------------------------
 @export var max_health: float = 100.0
 var health: float
@@ -69,14 +69,19 @@ var attack_damage_pending: bool = false
 
 
 # ---------------------------------------------------------
-# СБОР И ПЕРЕНОСКА РЕСУРСОВ
+# СБОР И ПЕРЕНОСКА РЕСУРСОВ V4
 # ---------------------------------------------------------
 var target_resource: ResourceSource = null
 var target_anthill: Anthill = null
 var current_gather_slot: int = -1
 var current_waiting_slot: int = -1
 var current_deposit_slot: int = -1
+var current_deposit_waiting_slot: int = -1
+
 var gather_timer: float = 0.0
+var blocked_near_resource_timer: float = 0.0
+var blocked_near_anthill_timer: float = 0.0
+
 var carried_amount: int = 0
 var carried_visual_node: Node3D = null
 
@@ -90,8 +95,8 @@ var carried_visual_node: Node3D = null
 @onready var navigation_agent: NavigationAgent3D = $NavigationAgent3D
 @onready var selection_indicator: MeshInstance3D = $SelectionIndicator
 @onready var carry_socket: Marker3D = $CarrySocket
-@onready var attack_slots: RadialSlots = $AttackSlots
-@onready var attack_waiting_slots: RadialSlots = $AttackWaitingSlots
+@onready var attack_slots: Node3D = $AttackSlots
+@onready var attack_waiting_slots: Node3D = $AttackWaitingSlots
 
 var wants_to_run: bool = false
 var desired_velocity: Vector3 = Vector3.ZERO
@@ -107,7 +112,7 @@ func _ready() -> void:
 	else:
 		unit_tag = "[Муравей #" + str(unit_id) + "]"
 
-	# V3: Collision Mask = 1 ТОЛЬКО (физически блокируют земля, камни, стены, хлеб; муравьи не блокируют друг друга)
+	# V4: Collision Mask = 1 ТОЛЬКО (физически блокируют мир, камни, стены, хлеб)
 	collision_mask = 1
 
 	# Физика прилипания к земле
@@ -117,15 +122,24 @@ func _ready() -> void:
 
 	health = max_health
 
-	# V3: Автоматический точный расчет радиуса боевых слотов
+	# Автоматический расчет радиуса боевых слотов
 	if auto_size_attack_slots:
-		if attack_slots != null:
-			# Внутреннее боевое кольцо: ~ 0.61 м (гарантированно внутри зоны укуса 0.84 м, но снаружи тела 0.56 м)
+		if attack_slots != null and attack_slots.has_method("rebuild_slots"):
 			attack_slots.radius = (body_radius * 2.0) + 0.05
 			attack_slots.slot_count = 8
 			attack_slots.reach_distance = 0.15
-		if attack_waiting_slots != null:
-			# Внешнее кольцо ожидания: ~ 1.21 м
+			attack_slots.rebuild_slots()
+		elif attack_slots != null and "radius" in attack_slots:
+			attack_slots.radius = (body_radius * 2.0) + 0.05
+			attack_slots.slot_count = 8
+			attack_slots.reach_distance = 0.15
+
+		if attack_waiting_slots != null and attack_waiting_slots.has_method("rebuild_slots"):
+			attack_waiting_slots.radius = (body_radius * 2.0) + 0.65
+			attack_waiting_slots.slot_count = 12
+			attack_waiting_slots.reach_distance = 0.15
+			attack_waiting_slots.rebuild_slots()
+		elif attack_waiting_slots != null and "radius" in attack_waiting_slots:
 			attack_waiting_slots.radius = (body_radius * 2.0) + 0.65
 			attack_waiting_slots.slot_count = 12
 			attack_waiting_slots.reach_distance = 0.15
@@ -187,6 +201,7 @@ func gather(resource: ResourceSource, anthill: Anthill) -> void:
 	state = UnitState.GATHERING
 	is_moving = false
 	stuck_timer = 0.0
+	blocked_near_resource_timer = 0.0
 
 	if resource.gather_slots != null:
 		current_gather_slot = resource.gather_slots.reserve_slot(self)
@@ -194,7 +209,7 @@ func gather(resource: ResourceSource, anthill: Anthill) -> void:
 			current_waiting_slot = resource.waiting_slots.reserve_slot(self)
 			print(unit_tag, " встал в очередь добычи (слот #", current_waiting_slot, ") у ", resource.name)
 		else:
-			print(unit_tag, " занял слот добычи #", current_gather_slot, " у ", resource.name)
+			print(unit_tag, " занял безопасный слот добычи #", current_gather_slot, " у ", resource.name)
 
 
 func cancel_all_orders() -> void:
@@ -206,6 +221,8 @@ func cancel_all_orders() -> void:
 	attack_damage_pending = false
 	attack_animation_timer = 0.0
 	gather_timer = 0.0
+	blocked_near_resource_timer = 0.0
+	blocked_near_anthill_timer = 0.0
 
 
 # ---------------------------------------------------------
@@ -235,7 +252,7 @@ func die() -> void:
 
 
 # ---------------------------------------------------------
-# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ V3
+# ГЛАВНЫЙ ФИЗИЧЕСКИЙ ЦИКЛ V4
 # ---------------------------------------------------------
 
 func _physics_process(delta: float) -> void:
@@ -345,7 +362,6 @@ func process_attack(delta: float) -> Vector3:
 
 	var effective_attack_range: float = get_effective_attack_range(attack_target)
 
-	# Нанесение урона в фазе укуса челюстями (55% анимации)
 	if attack_damage_pending:
 		attack_hit_timer -= delta
 		if attack_hit_timer <= 0.0:
@@ -357,7 +373,7 @@ func process_attack(delta: float) -> Vector3:
 
 	var enemy_distance: float = global_position.distance_to(attack_target.global_position)
 
-	# 1. Если достаём врага (дистанция <= 0.84 м) — останавливаемся и проводим атаку
+	# 1. Если достаём врага — стоим и бьём
 	if enemy_distance <= effective_attack_range:
 		is_moving = false
 		desired_velocity = Vector3.ZERO
@@ -380,7 +396,7 @@ func process_attack(delta: float) -> Vector3:
 		face_point(attack_target.global_position, delta)
 		return Vector3.ZERO
 
-	# 3. Враг пока дальше зоны атаки — сближаемся к своему боевому/ожидающему слоту
+	# 3. Сближаемся к своему слоту
 	if attack_slot_index == -1 and attack_target.attack_slots != null:
 		var new_slot: int = attack_target.attack_slots.reserve_slot(self)
 		if new_slot != -1:
@@ -411,7 +427,7 @@ func process_attack(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОБЫЧИ (GATHERING)
+# ОБРАБОТКА ДОБЫЧИ V4 (GATHERING С FALLBACK-СТРАХОВКОЙ)
 # ---------------------------------------------------------
 
 func process_gathering(delta: float) -> Vector3:
@@ -422,6 +438,7 @@ func process_gathering(delta: float) -> Vector3:
 		finish_gather()
 		return Vector3.ZERO
 
+	# Пробуем подняться из очереди в рабочий слот
 	if current_gather_slot == -1 and target_resource.gather_slots != null:
 		var new_slot: int = target_resource.gather_slots.reserve_slot(self)
 		if new_slot != -1:
@@ -429,17 +446,34 @@ func process_gathering(delta: float) -> Vector3:
 				target_resource.waiting_slots.release_slot_index(current_waiting_slot, self)
 			current_waiting_slot = -1
 			current_gather_slot = new_slot
+			blocked_near_resource_timer = 0.0
 
+	# 1. Если владеем рабочим безопасным слотом добычи
 	if current_gather_slot != -1 and target_resource.gather_slots != null:
 		var slot_pos: Vector3 = target_resource.gather_slots.get_slot_position(current_gather_slot)
 		var h_dist: float = get_horizontal_dist(global_position, slot_pos)
+		var reach_dist: float = target_resource.gather_slots.reach_distance
 
-		if h_dist > target_resource.gather_slots.reach_distance:
+		var reached_slot: bool = h_dist <= reach_dist
+
+		# Fallback-страховка V4: если муравей физически уже упёрся в край хлеба и стоит > 0.85 сек
+		var near_surface: bool = target_resource.is_point_near_surface(global_position, 0.85)
+		if near_surface and not reached_slot and get_real_velocity().length() < 0.06:
+			blocked_near_resource_timer += delta
+		else:
+			blocked_near_resource_timer = 0.0
+
+		var can_gather: bool = reached_slot or (blocked_near_resource_timer >= 0.85)
+
+		if not can_gather:
 			navigation_agent.target_position = slot_pos
 			return get_move_velocity_to(slot_pos, walk_speed, delta)
 
+		# Мы в точке добычи! Останавливаемся и грызем ресурс
 		is_moving = false
 		desired_velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
 		face_point(target_resource.global_position, delta)
 
 		if gather_timer <= 0.0:
@@ -458,8 +492,10 @@ func process_gathering(delta: float) -> Vector3:
 					carried_visual_node = target_resource.carry_visual_scene.instantiate()
 					carry_socket.add_child(carried_visual_node)
 
+				# Освобождаем безопасный слот добычи для ожидающих
 				target_resource.gather_slots.release_slot_index(current_gather_slot, self)
 				current_gather_slot = -1
+				blocked_near_resource_timer = 0.0
 
 				state = UnitState.CARRYING
 				is_moving = false
@@ -467,6 +503,7 @@ func process_gathering(delta: float) -> Vector3:
 
 		return Vector3.ZERO
 
+	# 2. Если ожидаем во внешнем периметре
 	if current_waiting_slot != -1 and target_resource.waiting_slots != null:
 		var wait_pos: Vector3 = target_resource.waiting_slots.get_slot_position(current_waiting_slot)
 		var dist_to_wait: float = get_horizontal_dist(global_position, wait_pos)
@@ -485,7 +522,7 @@ func process_gathering(delta: float) -> Vector3:
 
 
 # ---------------------------------------------------------
-# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК (CARRYING)
+# ОБРАБОТКА ДОСТАВКИ В МУРАВЕЙНИК V4 (CARRYING)
 # ---------------------------------------------------------
 
 func process_carrying(delta: float) -> Vector3:
@@ -495,43 +532,75 @@ func process_carrying(delta: float) -> Vector3:
 
 	if current_deposit_slot == -1 and target_anthill.deposit_slots != null:
 		current_deposit_slot = target_anthill.deposit_slots.reserve_slot(self)
+		if current_deposit_slot == -1 and target_anthill.deposit_waiting_slots != null:
+			current_deposit_waiting_slot = target_anthill.deposit_waiting_slots.reserve_slot(self)
 
-	var deposit_pos: Vector3 = target_anthill.global_position
-	var reach_dist: float = 1.0
+	# 1. Если получили слот сдачи
 	if current_deposit_slot != -1 and target_anthill.deposit_slots != null:
-		deposit_pos = target_anthill.deposit_slots.get_slot_position(current_deposit_slot)
-		reach_dist = target_anthill.deposit_slots.reach_distance
+		var deposit_pos: Vector3 = target_anthill.deposit_slots.get_slot_position(current_deposit_slot)
+		var h_dist: float = get_horizontal_dist(global_position, deposit_pos)
+		var reach_dist: float = target_anthill.deposit_slots.reach_distance
 
-	var h_dist: float = get_horizontal_dist(global_position, deposit_pos)
+		var reached_slot: bool = h_dist <= reach_dist
+		var near_anthill: bool = target_anthill.is_point_near_surface(global_position, 0.85)
 
-	if h_dist > reach_dist:
-		navigation_agent.target_position = deposit_pos
-		return get_move_velocity_to(deposit_pos, walk_speed, delta)
+		if near_anthill and not reached_slot and get_real_velocity().length() < 0.06:
+			blocked_near_anthill_timer += delta
+		else:
+			blocked_near_anthill_timer = 0.0
 
-	is_moving = false
-	desired_velocity = Vector3.ZERO
-	face_point(target_anthill.global_position, delta)
+		var can_deposit: bool = reached_slot or (blocked_near_anthill_timer >= 0.85)
 
-	var res_id: String = target_resource.resource_id if (target_resource and is_instance_valid(target_resource)) else "food"
-	target_anthill.deposit(res_id, carried_amount)
-	carried_amount = 0
+		if not can_deposit:
+			navigation_agent.target_position = deposit_pos
+			return get_move_velocity_to(deposit_pos, walk_speed, delta)
 
-	if carried_visual_node and is_instance_valid(carried_visual_node):
-		carried_visual_node.queue_free()
-		carried_visual_node = null
+		# Сдаем груз в муравейник
+		is_moving = false
+		desired_velocity = Vector3.ZERO
+		velocity.x = 0.0
+		velocity.z = 0.0
+		face_point(target_anthill.global_position, delta)
 
-	release_deposit_reservation()
+		var res_id: String = target_resource.resource_id if (target_resource and is_instance_valid(target_resource)) else "food"
+		target_anthill.deposit(res_id, carried_amount)
+		carried_amount = 0
 
-	if target_resource != null and is_instance_valid(target_resource) and not target_resource.is_depleted():
-		gather(target_resource, target_anthill)
-	else:
-		finish_gather()
+		if carried_visual_node and is_instance_valid(carried_visual_node):
+			carried_visual_node.queue_free()
+			carried_visual_node = null
 
+		release_deposit_reservation()
+		blocked_near_anthill_timer = 0.0
+
+		# Автовозврат к ресурсу
+		if target_resource != null and is_instance_valid(target_resource) and not target_resource.is_depleted():
+			gather(target_resource, target_anthill)
+		else:
+			finish_gather()
+
+		return Vector3.ZERO
+
+	# 2. Очередь ожидания у муравейника
+	if current_deposit_waiting_slot != -1 and target_anthill.deposit_waiting_slots != null:
+		var wait_pos: Vector3 = target_anthill.deposit_waiting_slots.get_slot_position(current_deposit_waiting_slot)
+		var dist_to_wait: float = get_horizontal_dist(global_position, wait_pos)
+
+		if dist_to_wait > target_anthill.deposit_waiting_slots.reach_distance:
+			navigation_agent.target_position = wait_pos
+			return get_move_velocity_to(wait_pos, walk_speed, delta)
+		else:
+			is_moving = false
+			face_point(target_anthill.global_position, delta)
+			animation_state.travel("Idle")
+			return Vector3.ZERO
+
+	animation_state.travel("Idle")
 	return Vector3.ZERO
 
 
 # ---------------------------------------------------------
-# РАСЧЁТ ДВИЖЕНИЯ V3
+# РАСЧЁТ ДВИЖЕНИЯ V4
 # ---------------------------------------------------------
 
 func get_move_velocity_to(target_position: Vector3, base_speed: float, delta: float) -> Vector3:
@@ -662,8 +731,11 @@ func release_deposit_reservation() -> void:
 	if target_anthill != null and is_instance_valid(target_anthill):
 		if current_deposit_slot != -1 and target_anthill.deposit_slots != null:
 			target_anthill.deposit_slots.release_slot_index(current_deposit_slot, self)
+		if current_deposit_waiting_slot != -1 and target_anthill.deposit_waiting_slots != null:
+			target_anthill.deposit_waiting_slots.release_slot_index(current_deposit_waiting_slot, self)
 
 	current_deposit_slot = -1
+	current_deposit_waiting_slot = -1
 
 
 func finish_attack() -> void:
@@ -684,6 +756,8 @@ func finish_gather() -> void:
 	target_resource = null
 	target_anthill = null
 	gather_timer = 0.0
+	blocked_near_resource_timer = 0.0
+	blocked_near_anthill_timer = 0.0
 	desired_velocity = Vector3.ZERO
 	velocity = Vector3.ZERO
 	state = UnitState.IDLE
