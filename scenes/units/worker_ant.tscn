@@ -1,0 +1,192 @@
+[gd_scene format=3 uid="uid://d2ulqrd708qmy"]
+
+[ext_resource type="PackedScene" uid="uid://kojposk8g4fo" path="res://assets/models/ant.glb" id="1_eqgho"]
+[ext_resource type="Script" uid="uid://bdykfriv0ehel" path="res://scripts/units/worker_ant.gd" id="1_wesjd"]
+[ext_resource type="Script" uid="uid://dqlgqsd8b8gej" path="res://scripts/systems/radial_slots.gd" id="3_slots"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_fw257"]
+size = Vector3(0.4, 0.41521484, 0.96728516)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_ring"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.2, 1, 0.35, 0.9)
+
+[sub_resource type="TorusMesh" id="TorusMesh_ring"]
+material = SubResource("StandardMaterial3D_ring")
+inner_radius = 0.45
+outer_radius = 0.55
+rings = 32
+ring_segments = 16
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_attack"]
+animation = &"ANT_Attack"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_gather"]
+animation = &"ANT_Gather"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_idle"]
+animation = &"ANT_Idle"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_run"]
+animation = &"ANT_Run"
+
+[sub_resource type="AnimationNodeAnimation" id="AnimationNodeAnimation_walk"]
+animation = &"ANT_Walk"
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_attack_idle"]
+xfade_time = 0.05
+switch_mode = 2
+advance_mode = 2
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_attack_run"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_attack_walk"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_gather_idle"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_gather_run"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_gather_walk"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_attack"]
+xfade_time = 0.03
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_gather"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_run"]
+xfade_time = 0.07
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_idle_walk"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_attack"]
+xfade_time = 0.03
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_gather"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_idle"]
+xfade_time = 0.07
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_run_walk"]
+xfade_time = 0.07
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_start"]
+advance_mode = 2
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_attack"]
+xfade_time = 0.03
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_gather"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_idle"]
+xfade_time = 0.05
+
+[sub_resource type="AnimationNodeStateMachineTransition" id="AnimationNodeStateMachineTransition_walk_run"]
+xfade_time = 0.07
+
+[sub_resource type="AnimationNodeStateMachine" id="AnimationNodeStateMachine_root"]
+states/Attack/node = SubResource("AnimationNodeAnimation_attack")
+states/Attack/position = Vector2(500, 200)
+states/Gather/node = SubResource("AnimationNodeAnimation_gather")
+states/Gather/position = Vector2(350, 200)
+states/Idle/node = SubResource("AnimationNodeAnimation_idle")
+states/Idle/position = Vector2(200, 100)
+states/Run/node = SubResource("AnimationNodeAnimation_run")
+states/Run/position = Vector2(500, 50)
+states/Walk/node = SubResource("AnimationNodeAnimation_walk")
+states/Walk/position = Vector2(350, 50)
+transitions = ["Attack", "Idle", SubResource("AnimationNodeStateMachineTransition_attack_idle"), "Attack", "Run", SubResource("AnimationNodeStateMachineTransition_attack_run"), "Attack", "Walk", SubResource("AnimationNodeStateMachineTransition_attack_walk"), "Gather", "Idle", SubResource("AnimationNodeStateMachineTransition_gather_idle"), "Gather", "Run", SubResource("AnimationNodeStateMachineTransition_gather_run"), "Gather", "Walk", SubResource("AnimationNodeStateMachineTransition_gather_walk"), "Idle", "Attack", SubResource("AnimationNodeStateMachineTransition_idle_attack"), "Idle", "Gather", SubResource("AnimationNodeStateMachineTransition_idle_gather"), "Idle", "Run", SubResource("AnimationNodeStateMachineTransition_idle_run"), "Idle", "Walk", SubResource("AnimationNodeStateMachineTransition_idle_walk"), "Run", "Attack", SubResource("AnimationNodeStateMachineTransition_run_attack"), "Run", "Gather", SubResource("AnimationNodeStateMachineTransition_run_gather"), "Run", "Idle", SubResource("AnimationNodeStateMachineTransition_run_idle"), "Run", "Walk", SubResource("AnimationNodeStateMachineTransition_run_walk"), "Start", "Idle", SubResource("AnimationNodeStateMachineTransition_start"), "Walk", "Attack", SubResource("AnimationNodeStateMachineTransition_walk_attack"), "Walk", "Gather", SubResource("AnimationNodeStateMachineTransition_walk_gather"), "Walk", "Idle", SubResource("AnimationNodeStateMachineTransition_walk_idle"), "Walk", "Run", SubResource("AnimationNodeStateMachineTransition_walk_run")]
+
+[node name="WorkerAnt" type="CharacterBody3D" unique_id=118136944]
+collision_layer = 2
+script = ExtResource("1_wesjd")
+
+[node name="ant" parent="." unique_id=1032150927 instance=ExtResource("1_eqgho")]
+
+[node name="Ant_Rig" parent="ant" index="0" unique_id=1633797532]
+transform = Transform3D(-4.371139e-08, 0, 1, 0, 1, 0, -1, 0, -4.371139e-08, 0, 0, 0)
+
+[node name="Skeleton3D" parent="ant/Ant_Rig" index="0" unique_id=377303693]
+bones/1/position = Vector3(3.8219554e-05, 0.13811995, 0.2239924)
+bones/1/rotation = Quaternion(0.061067093, 0.0638096, 0.003911985, 0.9960843)
+bones/2/rotation = Quaternion(-0.1010065, -0.10012166, -0.0016164763, 0.9898338)
+bones/3/rotation = Quaternion(-0.023463953, -0.014838661, -0.10732221, 0.99383664)
+bones/4/rotation = Quaternion(-0.0031641938, -0.011904914, 0.109813415, 0.9938759)
+bones/5/rotation = Quaternion(0.24859749, 0.22187386, 0.21946022, 0.9169562)
+bones/6/rotation = Quaternion(-0.28999457, -0.20795003, 0.038602185, 0.93336475)
+bones/7/rotation = Quaternion(0.28579402, 0.29793203, -0.020919574, 0.91056067)
+bones/8/rotation = Quaternion(-0.38815072, -0.4247899, -0.001997089, 0.8178561)
+bones/9/rotation = Quaternion(0.0427035, 0.16328663, 0.9852753, 0.027319543)
+bones/10/rotation = Quaternion(-0.08997145, 0.08622369, 0.011428033, 0.99213916)
+bones/11/rotation = Quaternion(-0.29224378, -0.13010646, 0.4272121, 0.8456689)
+bones/12/rotation = Quaternion(0.69216657, -0.014695748, -0.025485111, 0.721138)
+bones/13/rotation = Quaternion(0.9086464, -0.005022143, 0.11126432, -0.4024384)
+bones/14/rotation = Quaternion(0.32040352, 0.057665765, -0.04313674, 0.94453984)
+bones/15/rotation = Quaternion(-0.23786901, 0.025829365, -0.45971182, 0.8552288)
+bones/16/rotation = Quaternion(0.6921666, 0.014695596, 0.025485104, 0.72113806)
+bones/17/rotation = Quaternion(0.90864646, 0.00502216, -0.111264475, -0.4024384)
+bones/18/rotation = Quaternion(0.32040355, -0.05766576, 0.04313675, 0.94453984)
+bones/19/rotation = Quaternion(-0.2759612, -0.19472876, 0.67022276, 0.6608537)
+bones/20/rotation = Quaternion(0.72605515, -0.005120972, -0.058445733, 0.68512917)
+bones/21/rotation = Quaternion(0.92351097, -0.010811601, 0.014736257, -0.38313642)
+bones/22/rotation = Quaternion(0.25938785, -0.15255083, 0.09423144, 0.9489819)
+bones/23/rotation = Quaternion(-0.19202338, 0.11254382, -0.6989136, 0.67969173)
+bones/24/rotation = Quaternion(0.726055, 0.0051209833, 0.058445714, 0.6851292)
+bones/25/rotation = Quaternion(0.92351097, 0.010811567, -0.014736187, -0.38313648)
+bones/26/rotation = Quaternion(0.25938782, 0.15255076, -0.09423139, 0.94898194)
+bones/27/rotation = Quaternion(-0.24096356, -0.20519345, 0.78647226, 0.5303713)
+bones/28/rotation = Quaternion(0.7288859, 0.03365352, 0.14861019, 0.6674637)
+bones/29/rotation = Quaternion(0.87049836, 0.0061234827, -0.214101, -0.44312075)
+bones/30/rotation = Quaternion(0.29306436, -0.031182265, 0.030264754, 0.9551047)
+bones/31/rotation = Quaternion(-0.14308748, 0.13886912, -0.81001717, 0.55146486)
+bones/32/rotation = Quaternion(0.7288858, -0.033653483, -0.14861037, 0.66746384)
+bones/33/rotation = Quaternion(0.8704983, -0.006123576, 0.21410099, -0.4431209)
+bones/34/rotation = Quaternion(0.29306445, 0.031182148, -0.03026467, 0.9551047)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=912586983]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.20760742, -0.10864258)
+shape = SubResource("BoxShape3D_fw257")
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="." unique_id=557278329]
+path_desired_distance = 0.15
+target_desired_distance = 0.2
+avoidance_enabled = true
+radius = 0.28
+neighbor_distance = 1.8
+time_horizon_agents = 0.5
+max_speed = 3.2
+
+[node name="SelectionIndicator" type="MeshInstance3D" parent="." unique_id=290648169]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.18, 0)
+visible = false
+mesh = SubResource("TorusMesh_ring")
+
+[node name="AnimationTree" type="AnimationTree" parent="." unique_id=391198214]
+root_node = NodePath("../ant")
+tree_root = SubResource("AnimationNodeStateMachine_root")
+anim_player = NodePath("../ant/AnimationPlayer")
+
+[node name="CarrySocket" type="Marker3D" parent="." unique_id=546579385]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.3, -0.48)
+
+[node name="AttackSlots" type="Node3D" parent="." unique_id=113630935]
+script = ExtResource("3_slots")
+radius = 0.72
+reach_distance = 0.15
+
+[node name="AttackWaitingSlots" type="Node3D" parent="." unique_id=1553737245]
+script = ExtResource("3_slots")
+radius = 1.25
+slot_count = 12
+reach_distance = 0.15
+
+[editable path="ant"]

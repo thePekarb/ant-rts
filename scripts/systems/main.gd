@@ -1,0 +1,181 @@
+extends Node3D
+
+
+@onready var camera: Camera3D = $CameraRig/Camera3D
+@onready var selection_box: ColorRect = $UI/SelectionBox
+@onready var squad_controller: SquadController = $SquadController
+@onready var anthill: Anthill = $Anthill
+
+var selected_units: Array[WorkerAnt] = []
+
+# Начальная точка протягивания рамки.
+var selection_start: Vector2
+var selecting: bool = false
+var dragging_selection: bool = false
+var additive_selection: bool = false
+
+const DRAG_THRESHOLD: float = 6.0
+
+# ---------------------------------------------------------
+# БИТОВЫЕ МАСКИ СЛОЕВ КОЛЛИЗИЙ
+# ---------------------------------------------------------
+const WORLD_MASK: int = 1      # Layer 1 = Земля, камни, блокирующий хлеб
+const FRIENDLY_MASK: int = 2   # Layer 2 = Наши муравьи
+const ENEMY_MASK: int = 4      # Layer 3 = Враги (1 << 2 = 4)
+const RESOURCE_MASK: int = 8   # Layer 4 = Ресурсы (1 << 3 = 8)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		# ЛКМ нажали
+		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+			selection_start = event.position
+			selecting = true
+			dragging_selection = false
+			additive_selection = event.shift_pressed
+
+		# ЛКМ отпустили
+		elif event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			if selecting:
+				if dragging_selection:
+					select_units_in_box(selection_start, event.position, additive_selection)
+				else:
+					select_unit_at_mouse(event.position, additive_selection)
+
+			selecting = false
+			dragging_selection = false
+			selection_box.visible = false
+
+		# ПКМ = контекстный приказ (Атака -> Сбор -> Движение)
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			command_right_click(event.position)
+
+	elif event is InputEventMouseMotion and selecting:
+		var distance: float = selection_start.distance_to(event.position)
+		if distance > DRAG_THRESHOLD:
+			dragging_selection = true
+			update_selection_box(selection_start, event.position)
+
+
+func update_selection_box(start: Vector2, end: Vector2) -> void:
+	selection_box.visible = true
+
+	var top_left := Vector2(
+		min(start.x, end.x),
+		min(start.y, end.y)
+	)
+
+	var box_size := Vector2(
+		abs(end.x - start.x),
+		abs(end.y - start.y)
+	)
+
+	selection_box.position = top_left
+	selection_box.size = box_size
+
+
+func clean_selected_units() -> void:
+	selected_units = selected_units.filter(func(u): return is_instance_valid(u) and u.state != WorkerAnt.UnitState.DEAD)
+
+
+func clear_selection() -> void:
+	clean_selected_units()
+	for unit in selected_units:
+		unit.set_selected(false)
+	selected_units.clear()
+
+
+func select_unit_at_mouse(mouse_position: Vector2, additive: bool) -> void:
+	clean_selected_units()
+
+	# Ищем наших юнитов на Layer 2 (FRIENDLY_MASK = 2)
+	var result: Dictionary = raycast_from_mouse(mouse_position, FRIENDLY_MASK)
+
+	if not additive:
+		clear_selection()
+
+	if result:
+		var collider = result.get("collider")
+		if collider is WorkerAnt and is_instance_valid(collider) and collider.state != WorkerAnt.UnitState.DEAD:
+			if additive and selected_units.has(collider):
+				collider.set_selected(false)
+				selected_units.erase(collider)
+			else:
+				if not selected_units.has(collider):
+					selected_units.append(collider)
+					collider.set_selected(true)
+
+
+func select_units_in_box(start: Vector2, end: Vector2, additive: bool) -> void:
+	if not additive:
+		clear_selection()
+
+	clean_selected_units()
+
+	var rect := Rect2(start, end - start).abs()
+	var units := get_tree().get_nodes_in_group("selectable_units")
+
+	for node in units:
+		if node is not WorkerAnt or not is_instance_valid(node) or node.state == WorkerAnt.UnitState.DEAD:
+			continue
+
+		if node.collision_layer != 2:
+			continue
+
+		var unit: WorkerAnt = node
+		if camera.is_position_behind(unit.global_position):
+			continue
+
+		var screen_position: Vector2 = camera.unproject_position(unit.global_position)
+		if rect.has_point(screen_position):
+			if not selected_units.has(unit):
+				selected_units.append(unit)
+				unit.set_selected(true)
+
+
+# ---------------------------------------------------------
+# КОНТЕКСТНЫЙ ПКМ V3: СТРОГИЙ ПРИОРИТЕТ ВРАГ -> РЕСУРС -> ЗЕМЛЯ
+# ---------------------------------------------------------
+
+func command_right_click(mouse_position: Vector2) -> void:
+	clean_selected_units()
+
+	if selected_units.is_empty():
+		return
+
+	# 1. СНАЧАЛА ВРАГ (Layer 3, ENEMY_MASK = 4)
+	var enemy_hit: Dictionary = raycast_from_mouse(mouse_position, ENEMY_MASK)
+	if not enemy_hit.is_empty():
+		var enemy = enemy_hit.get("collider")
+		if enemy is WorkerAnt and enemy not in selected_units and is_instance_valid(enemy) and enemy.state != WorkerAnt.UnitState.DEAD:
+			squad_controller.issue_attack(selected_units, enemy)
+			return
+
+	# 2. ПОТОМ РЕСУРС (Layer 4, RESOURCE_MASK = 8)
+	var resource_hit: Dictionary = raycast_from_mouse(mouse_position, RESOURCE_MASK)
+	if not resource_hit.is_empty():
+		var resource = resource_hit.get("collider")
+		if resource is ResourceSource and is_instance_valid(resource):
+			squad_controller.issue_gather(selected_units, resource, anthill)
+			return
+
+	# 3. И ТОЛЬКО ПОТОМ ЗЕМЛЯ / МИР (Layer 1, WORLD_MASK = 1)
+	var ground_hit: Dictionary = raycast_from_mouse(mouse_position, WORLD_MASK)
+	if not ground_hit.is_empty():
+		var target: Vector3 = ground_hit["position"]
+		squad_controller.issue_move(selected_units, target)
+
+
+func raycast_from_mouse(mouse_position: Vector2, mask: int) -> Dictionary:
+	var ray_origin: Vector3 = camera.project_ray_origin(mouse_position)
+	var ray_direction: Vector3 = camera.project_ray_normal(mouse_position)
+	var ray_end: Vector3 = ray_origin + ray_direction * 1000.0
+
+	var query := PhysicsRayQueryParameters3D.create(
+		ray_origin,
+		ray_end
+	)
+
+	query.collision_mask = mask
+
+	return get_world_3d().direct_space_state.intersect_ray(query)

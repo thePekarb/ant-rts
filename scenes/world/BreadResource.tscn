@@ -1,0 +1,43 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/systems/resource_source.gd" id="1_script"]
+[ext_resource type="PackedScene" path="res://assets/models/bread_resource.glb" id="2_model"]
+[ext_resource type="PackedScene" path="res://scenes/world/bread_chunk.tscn" id="3_chunk"]
+[ext_resource type="Script" path="res://scripts/systems/radial_slots.gd" id="4_slots"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_bread"]
+size = Vector3(5.2, 0.8, 6.2)
+
+[node name="BreadResource" type="StaticBody3D"]
+collision_layer = 9
+collision_mask = 0
+script = ExtResource("1_script")
+remaining_amount = 30
+units_per_trip = 1
+gather_duration = 1.2
+carry_visual_scene = ExtResource("3_chunk")
+
+[node name="Model" parent="." instance=ExtResource("2_model")]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
+shape = SubResource("BoxShape3D_bread")
+
+[node name="NavigationObstacle3D" type="NavigationObstacle3D" parent="."]
+radius = 3.6
+affect_navigation_mesh = true
+avoidance_enabled = true
+use_3d_avoidance = false
+vertices = PackedVector3Array(-2.8, 0, -3.3, 2.8, 0, -3.3, 2.8, 0, 3.3, -2.8, 0, 3.3)
+
+[node name="GatherSlots" type="Node3D" parent="."]
+script = ExtResource("4_slots")
+radius = 3.2
+slot_count = 10
+reach_distance = 0.3
+
+[node name="WaitingSlots" type="Node3D" parent="."]
+script = ExtResource("4_slots")
+radius = 4.2
+slot_count = 16
+reach_distance = 0.3
