@@ -7,12 +7,17 @@ signal amount_changed(current_amount: int, max_amount: int)
 @export var resource_id: String = "food"
 @export var display_name: String = "Хлеб"
 @export var sync_amount_to_pieces: bool = true
-@export var remaining_amount: int = 104
-@export var max_amount: int = 104
+@export var remaining_amount: int = 81
+@export var max_amount: int = 81
 @export var units_per_trip: int = 1
 @export var gather_duration: float = 1.2
 @export var carry_visual_scene: PackedScene
-@export var piece_vanish_duration: float = 0.18
+
+# Настройки маски выкусывания V9
+@export var mask_resolution: int = 128
+@export var bite_radius_world: float = 0.42
+@export var bite_soft_edge_world: float = 0.08
+@export var invert_mask_v: bool = false
 
 # Настройки эффекта крошек
 @export var gather_fx_enabled: bool = true
@@ -22,7 +27,7 @@ signal amount_changed(current_amount: int, max_amount: int)
 @export var particle_size: float = 0.075
 
 # Размеры препятствия и безопасных слотов
-@export var obstacle_half_size: Vector2 = Vector2(2.55, 3.05)
+@export var obstacle_half_size: Vector2 = Vector2(2.70, 3.35)
 @export var gather_surface_reach: float = 0.72
 @export var gather_clearance: float = 0.68
 @export var waiting_extra_clearance: float = 0.95
@@ -34,20 +39,25 @@ signal amount_changed(current_amount: int, max_amount: int)
 @onready var waiting_slots: SafeInteractionSlots = $WaitingSlots
 @onready var obstacle: NavigationObstacle3D = get_node_or_null("NavigationObstacle3D")
 
-var available_pieces: Array[Node3D] = []
-var active_vanish_count: int = 0
+var available_cells: Array[Node3D] = []
+var active_take_count: int = 0
+
+# Процедурная текстура маски
+var mask_image: Image
+var mask_texture: ImageTexture
+var bread_top_mesh_instance: MeshInstance3D = null
 
 var crumb_particle_material: StandardMaterial3D
 
 
 func _ready() -> void:
-	# V7.1: Хлеб блокирует физически (Layer 1 = World) и детектируется мышью (Layer 4 = Resource)
+	# V9: Хлеб блокирует физически (Layer 1 = World) и детектируется мышью (Layer 4 = Resource)
 	# 1 | 8 = 9
 	collision_layer = 1 | 8
 	collision_mask = 0
 
 	crumb_particle_material = StandardMaterial3D.new()
-	crumb_particle_material.albedo_color = Color(0.86, 0.77, 0.56)
+	crumb_particle_material.albedo_color = Color(0.90, 0.83, 0.65)
 	crumb_particle_material.roughness = 0.85
 
 	if obstacle != null:
@@ -76,21 +86,73 @@ func _ready() -> void:
 		waiting_slots.reach_distance = 0.40
 		waiting_slots.rebuild_slots()
 
-	collect_visual_pieces(self)
+	collect_logical_cells(self)
+	find_bread_top(self)
+	init_mask_shader()
 
-	if sync_amount_to_pieces and not available_pieces.is_empty():
-		remaining_amount = available_pieces.size()
+	if sync_amount_to_pieces and not available_cells.is_empty():
+		remaining_amount = available_cells.size()
 		max_amount = remaining_amount
 
 	amount_changed.emit(remaining_amount, max_amount)
-	print("[Ресурс: ", name, "] Инициализирован V7.1: кусочков=", available_pieces.size(), ", запас=", remaining_amount, "/", max_amount)
+	print("[Ресурс V9: ", name, "] Инициализирован: логических ячеек=", available_cells.size(), ", запас=", remaining_amount, "/", max_amount)
 
 
-func collect_visual_pieces(node: Node) -> void:
+func collect_logical_cells(node: Node) -> void:
 	for child in node.get_children():
-		if child is Node3D and child.name.begins_with("BreadPiece_"):
-			available_pieces.append(child)
-		collect_visual_pieces(child)
+		if child.name.begins_with("BreadCell_") and child is Node3D:
+			available_cells.append(child)
+		collect_logical_cells(child)
+
+
+func find_bread_top(node: Node) -> void:
+	for child in node.get_children():
+		if child is MeshInstance3D and child.name == "BreadTop":
+			bread_top_mesh_instance = child
+			return
+		find_bread_top(child)
+
+
+func init_mask_shader() -> void:
+	if bread_top_mesh_instance == null:
+		return
+
+	# Создаем белую текстуру маски 128x128
+	mask_image = Image.create(mask_resolution, mask_resolution, false, Image.FORMAT_R8)
+	mask_image.fill(Color(1.0, 1.0, 1.0, 1.0))
+	mask_texture = ImageTexture.create_from_image(mask_image)
+
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode blend_mix, depth_draw_opaque, cull_back;
+
+uniform sampler2D mask_texture : hint_default_white, filter_linear;
+uniform vec4 crumb_color : source_color = vec4(0.90, 0.83, 0.65, 1.0);
+uniform vec4 crust_color : source_color = vec4(0.66, 0.47, 0.25, 1.0);
+uniform float roughness : hint_range(0.0, 1.0) = 0.86;
+
+void fragment() {
+	float mask = texture(mask_texture, UV).r;
+	if (mask < 0.5) {
+		discard;
+	}
+	vec2 centered = (UV - vec2(0.5)) * 2.0;
+	float d = length(centered);
+	vec3 col = mix(crumb_color.rgb, crust_color.rgb, smoothstep(0.72, 0.88, d));
+	ALBEDO = col;
+	ROUGHNESS = roughness;
+}
+"""
+
+	var mat := ShaderMaterial.new()
+	mat.shader = shader
+	mat.set_shader_parameter("mask_texture", mask_texture)
+	mat.set_shader_parameter("crumb_color", Color(0.90, 0.83, 0.65, 1.0))
+	mat.set_shader_parameter("crust_color", Color(0.66, 0.47, 0.25, 1.0))
+	mat.set_shader_parameter("roughness", 0.86)
+
+	bread_top_mesh_instance.material_override = mat
 
 
 func spawn_gather_tick(worker_pos: Vector3) -> void:
@@ -104,60 +166,92 @@ func spawn_gather_tick(worker_pos: Vector3) -> void:
 
 
 func take_from(worker_pos: Vector3, amount: int = 1) -> int:
-	if available_pieces.is_empty() or remaining_amount <= 0:
+	if available_cells.is_empty() or remaining_amount <= 0:
 		return 0
 
 	var actual_take: int = min(amount, remaining_amount)
 
-	# Вектор от центра хлеба к муравью
 	var to_worker_2d := Vector2(worker_pos.x - global_position.x, worker_pos.z - global_position.z)
 	var dir_to_worker: Vector2 = to_worker_2d.normalized() if to_worker_2d.length_squared() > 0.001 else Vector2.RIGHT
 
 	for _i in range(actual_take):
-		if available_pieces.is_empty():
+		if available_cells.is_empty():
 			break
 
 		var best_idx: int = -1
 		var best_score: float = INF
 
-		for j in range(available_pieces.size()):
-			var piece: Node3D = available_pieces[j]
-			if not is_instance_valid(piece):
+		for j in range(available_cells.size()):
+			var cell: Node3D = available_cells[j]
+			if not is_instance_valid(cell):
 				continue
 
-			var piece_vec := Vector2(piece.global_position.x - global_position.x, piece.global_position.z - global_position.z)
-			var piece_dist_from_center: float = piece_vec.length()
-			var piece_dir: Vector2 = piece_vec.normalized() if piece_dist_from_center > 0.001 else dir_to_worker
+			var cell_vec := Vector2(cell.global_position.x - global_position.x, cell.global_position.z - global_position.z)
+			var cell_dist_from_center: float = cell_vec.length()
+			var cell_dir: Vector2 = cell_vec.normalized() if cell_dist_from_center > 0.001 else dir_to_worker
 
-			var alignment: float = dir_to_worker.dot(piece_dir) # 1.0 = точно с этой стороны
-			var dist_to_worker: float = worker_pos.distance_to(piece.global_position)
+			var alignment: float = dir_to_worker.dot(cell_dir)
+			var dist_to_worker: float = worker_pos.distance_to(cell.global_position)
 
-			# V7.1: Умный скоринг — сильно предпочитает внешние кусочки с рабочей стороны муравья
-			var score: float = dist_to_worker * 1.2 - (alignment * 2.0) - (piece_dist_from_center * 0.35)
+			var score: float = dist_to_worker * 1.2 - (alignment * 2.2) - (cell_dist_from_center * 0.40)
 
 			if score < best_score:
 				best_score = score
 				best_idx = j
 
 		if best_idx != -1:
-			var target_piece: Node3D = available_pieces[best_idx]
-			available_pieces.remove_at(best_idx)
+			var target_cell: Node3D = available_cells[best_idx]
+			available_cells.remove_at(best_idx)
 			remaining_amount -= 1
 
-			if gather_fx_enabled:
-				var piece_pos: Vector3 = target_piece.global_position
-				piece_pos.y = max(0.2, piece_pos.y)
-				spawn_crumbs(piece_pos, gather_take_particles, particle_size, 1.2)
+			# Выкусываем область на маске BreadTop
+			apply_bite_to_mask(target_cell.global_position)
 
-			animate_piece_vanish(target_piece)
+			if gather_fx_enabled:
+				var cell_pos: Vector3 = target_cell.global_position
+				cell_pos.y = max(0.22, cell_pos.y)
+				spawn_crumbs(cell_pos, gather_take_particles, particle_size, 1.2)
 
 	amount_changed.emit(remaining_amount, max_amount)
-	print("[Ресурс: ", name, "] Отщипнут кусочек! Осталось: ", remaining_amount, "/", max_amount)
+	print("[Ресурс V9: ", name, "] Выкусан кусочек! Осталось ячеек: ", remaining_amount, "/", max_amount)
 
-	if remaining_amount <= 0 or available_pieces.is_empty():
+	if remaining_amount <= 0 or available_cells.is_empty():
 		on_fully_depleted()
 
 	return actual_take
+
+
+func apply_bite_to_mask(world_pos: Vector3) -> void:
+	if mask_image == null or mask_texture == null:
+		return
+
+	var local_x: float = world_pos.x - global_position.x
+	var local_z: float = world_pos.z - global_position.z
+
+	var hw: float = obstacle_half_size.x
+	var hh: float = obstacle_half_size.y
+
+	var u: float = clampf((local_x + hw) / (hw * 2.0), 0.0, 1.0)
+	var v: float = clampf((local_z + hh) / (hh * 2.0), 0.0, 1.0)
+	if invert_mask_v:
+		v = 1.0 - v
+
+	var center_px: int = int(u * float(mask_resolution))
+	var center_py: int = int(v * float(mask_resolution))
+
+	var rad_px: float = (bite_radius_world / (hw * 2.0)) * float(mask_resolution)
+	var rad_int: int = int(ceil(rad_px + 2.0))
+
+	for dy in range(-rad_int, rad_int + 1):
+		for dx in range(-rad_int, rad_int + 1):
+			var px: int = center_px + dx
+			var py: int = center_py + dy
+			if px >= 0 and px < mask_resolution and py >= 0 and py < mask_resolution:
+				var dist: float = sqrt(float(dx * dx + dy * dy))
+				if dist <= rad_px:
+					mask_image.set_pixel(px, py, Color(0.0, 0.0, 0.0, 1.0))
+
+	mask_texture.update(mask_image)
 
 
 func spawn_crumbs(pos: Vector3, count: int, cube_size: float, speed: float) -> void:
@@ -188,32 +282,16 @@ func spawn_crumbs(pos: Vector3, count: int, cube_size: float, speed: float) -> v
 	)
 
 
-func animate_piece_vanish(piece: Node3D) -> void:
-	if not is_instance_valid(piece):
-		return
-
-	active_vanish_count += 1
-	var tween: Tween = create_tween().set_parallel(true)
-	tween.tween_property(piece, "scale", Vector3(0.01, 0.01, 0.01), piece_vanish_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	tween.tween_property(piece, "position:y", piece.position.y + 0.15, piece_vanish_duration).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tween.chain().tween_callback(func():
-		active_vanish_count -= 1
-		if is_instance_valid(piece):
-			piece.queue_free()
-		if remaining_amount <= 0 and active_vanish_count <= 0:
-			queue_free()
-	)
-
-
 func on_fully_depleted() -> void:
-	print("[Ресурс: ", name, "] Полностью истощён и съеден!")
+	print("[Ресурс V9: ", name, "] Полностью истощён и съеден!")
 	collision_layer = 0
 	if obstacle != null:
 		obstacle.avoidance_enabled = false
 		obstacle.affect_navigation_mesh = false
 
-	if active_vanish_count <= 0:
-		queue_free()
+	var tween := create_tween()
+	tween.tween_property(self, "scale", Vector3(0.01, 0.01, 0.01), 0.35)
+	tween.tween_callback(queue_free)
 
 
 func harvest(amount: int = 1) -> int:
@@ -221,7 +299,7 @@ func harvest(amount: int = 1) -> int:
 
 
 func is_depleted() -> bool:
-	return remaining_amount <= 0 or (available_pieces.is_empty() and active_vanish_count <= 0)
+	return remaining_amount <= 0 or available_cells.is_empty()
 
 
 func is_point_near_surface(pos: Vector3, max_dist: float = 0.85) -> bool:

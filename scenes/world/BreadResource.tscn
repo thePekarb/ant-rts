@@ -6,20 +6,24 @@
 [ext_resource type="Script" path="res://scripts/systems/safe_interaction_slots.gd" id="4_safe_slots"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_bread"]
-size = Vector3(5.1, 0.8, 6.1)
+size = Vector3(5.3, 0.8, 6.5)
 
 [node name="BreadResource" type="StaticBody3D"]
 collision_layer = 9
 collision_mask = 0
 script = ExtResource("1_script")
 resource_id = "food"
+display_name = "Хлеб"
 sync_amount_to_pieces = true
-remaining_amount = 42
+remaining_amount = 81
+max_amount = 81
 units_per_trip = 1
 gather_duration = 1.2
 carry_visual_scene = ExtResource("3_chunk")
-piece_vanish_duration = 0.18
-obstacle_half_size = Vector2(2.55, 3.05)
+mask_resolution = 128
+bite_radius_world = 0.42
+bite_soft_edge_world = 0.08
+obstacle_half_size = Vector2(2.7, 3.35)
 gather_surface_reach = 0.72
 gather_clearance = 0.68
 waiting_extra_clearance = 0.95
@@ -33,11 +37,11 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.4, 0)
 shape = SubResource("BoxShape3D_bread")
 
 [node name="NavigationObstacle3D" type="NavigationObstacle3D" parent="."]
-radius = 3.6
+radius = 3.8
 affect_navigation_mesh = true
 avoidance_enabled = true
 use_3d_avoidance = false
-vertices = PackedVector3Array(-2.55, 0, -3.05, 2.55, 0, -3.05, 2.55, 0, 3.05, -2.55, 0, 3.05)
+vertices = PackedVector3Array(-2.7, 0, -3.35, 2.7, 0, -3.35, 2.7, 0, 3.35, -2.7, 0, 3.35)
 
 [node name="GatherSlots" type="Node3D" parent="."]
 script = ExtResource("4_safe_slots")
